@@ -35,14 +35,35 @@ def test_columns_normalizes_to_100():
     assert [s["w_pct"] for s in slots] == pytest.approx([10.0, 20.0, 30.0, 40.0])
 
 
-def test_columns_with_nonstandard_total_normalizes():
-    slots = _columns([1, 1, 1])
-    assert sum(s["w_pct"] for s in slots) == pytest.approx(100.0)
+def test_columns_rejects_nonstandard_total():
+    with pytest.raises(ValueError, match="sum to 100"):
+        _columns([1, 1, 1])
 
 
 def test_columns_rejects_zero_total():
     with pytest.raises(ValueError):
         _columns([0, 0])
+
+
+def test_columns_rejects_negative_split():
+    with pytest.raises(ValueError, match="positive"):
+        _columns([-10, 110])
+
+
+def test_columns_rejects_zero_value_in_splits():
+    with pytest.raises(ValueError):
+        _columns([0, 50, 50])
+
+
+def test_columns_accepts_exact_100():
+    slots = _columns([25, 75])
+    assert sum(s["w_pct"] for s in slots) == pytest.approx(100.0)
+
+
+def test_columns_accepts_near_100_within_tolerance():
+    # 33.33 + 33.34 + 33.33 = 100.00 — within tolerance
+    slots = _columns([33.33, 33.34, 33.33])
+    assert len(slots) == 3
 
 
 def test_columns_rejects_empty():
@@ -61,6 +82,21 @@ def test_rows_even_split():
 def test_rows_rejects_empty():
     with pytest.raises(ValueError):
         _rows([])
+
+
+def test_rows_rejects_negative_split():
+    with pytest.raises(ValueError, match="positive"):
+        _rows([-50, 150])
+
+
+def test_rows_rejects_nonstandard_total():
+    with pytest.raises(ValueError, match="sum to 100"):
+        _rows([30, 30])
+
+
+def test_rows_rejects_zero_value_in_splits():
+    with pytest.raises(ValueError):
+        _rows([0, 100])
 
 
 # --- _grid -------------------------------------------------------------------
@@ -211,6 +247,14 @@ def test_resolve_unknown_monitor_raises(primary_monitor):
     with pytest.raises(ValueError, match="Monitor 99 unknown"):
         _resolve_single(
             {"type": "preset", "name": "two-columns", "monitor": 99},
+            {0: primary_monitor},
+        )
+
+
+def test_resolve_single_columns_negative_split_raises(primary_monitor):
+    with pytest.raises(ValueError):
+        _resolve_single(
+            {"type": "columns", "monitor": 0, "splits": [-10, 110]},
             {0: primary_monitor},
         )
 

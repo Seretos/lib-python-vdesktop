@@ -1,13 +1,15 @@
 """Tests for lib_python_vdesktop.adoption._classify — app-type detection from
-window class + title.
+window class + title, and adopt_window_impl HWND validation.
 
 Note: adoption transitively imports ctypes.windll, so these tests are
 Windows-only. That matches the production CI runner."""
 from __future__ import annotations
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lib_python_vdesktop.adoption import _classify
+from lib_python_vdesktop.adoption import _classify, adopt_window_impl
+from lib_python_vdesktop.tracking import TrackedWindow
 
 
 @pytest.mark.parametrize("title", [
@@ -57,3 +59,37 @@ def test_classify_unknown_class():
 def test_classify_unknown_with_chrome_in_title_only():
     # Title alone shouldn't fool us — class is required.
     assert _classify("Notepad", "fake Google Chrome") == "unknown"
+
+
+# --- adopt_window_impl HWND validation ---------------------------------------
+
+
+def test_adopt_window_rejects_invalid_hwnd():
+    """Regression: adopt_window_impl must raise ValueError for a bogus HWND
+    instead of registering a phantom entry in the registry."""
+    with patch("lib_python_vdesktop._win32_helpers._user32") as mock_user32:
+        mock_user32.IsWindow.return_value = 0
+        with pytest.raises(ValueError, match="99999999"):
+            adopt_window_impl(99999999)
+
+
+def test_adopt_window_accepts_valid_hwnd_already_tracked():
+    """When IsWindow returns truthy and the HWND is already tracked,
+    adopt_window_impl returns the already-tracked result without raising."""
+    fake_tw = TrackedWindow(
+        handle_id="abcd1234",
+        hwnd=12345,
+        pid=999,
+        app_type="chrome",
+        label="my-window",
+        desktop_guid="guid-x",
+        bounds={"x": 0, "y": 0, "w": 100, "h": 100},
+        title="Test Window",
+    )
+    with patch("lib_python_vdesktop._win32_helpers._user32") as mock_user32:
+        mock_user32.IsWindow.return_value = 1
+        with patch("lib_python_vdesktop.adoption.REGISTRY") as mock_registry:
+            mock_registry.find_by_hwnd.return_value = fake_tw
+            result = adopt_window_impl(12345)
+
+    assert result == {"handle_id": "abcd1234", "already_tracked": True}

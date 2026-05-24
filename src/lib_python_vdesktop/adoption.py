@@ -13,6 +13,7 @@ from ._win32_helpers import (
     get_window_pid,
     get_window_rect,
     get_window_title,
+    is_window,
 )
 from ._window_classes import CHROME_WIDGET_CLASS, TERMINAL_CLASS
 from .tracking import REGISTRY
@@ -86,6 +87,8 @@ def adopt_window_impl(
     label: Optional[str] = None,
     app_type_hint: Optional[str] = None,
 ) -> dict:
+    if not is_window(int(hwnd)):
+        raise ValueError(f"hwnd {hwnd!r} does not correspond to an existing window")
     existing = REGISTRY.find_by_hwnd(int(hwnd))
     if existing is not None:
         if label:
