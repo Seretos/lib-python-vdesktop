@@ -11,3 +11,6 @@ CHROME_WIDGET_CLASS = "Chrome_WidgetWin_1"
 
 # Windows Terminal's hosting window class.
 TERMINAL_CLASS = "CASCADIA_HOSTING_WINDOW_CLASS"
+
+# Firefox (and other Gecko-based apps) use this class for their top-level frame.
+MOZILLA_WINDOW_CLASS = "MozillaWindowClass"

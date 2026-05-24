@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Optional, Union
 
 from . import adoption, desktops, layouts, query, windows
-from .launchers import chrome, edge, generic, terminal, vscode
+from .launchers import chrome, edge, firefox, generic, terminal, vscode
 from .layouts import LayoutSpec
 from .tracking import REGISTRY, Registry
 
@@ -140,6 +140,19 @@ class VDesktopManager:
     ) -> dict:
         return edge.launch_edge_impl(
             urls, slot, desktop, label, new_user_data_dir, inprivate
+        )
+
+    def launch_firefox(
+        self,
+        urls: list[str],
+        slot: Optional[str] = None,
+        desktop: Optional[DesktopRef] = None,
+        label: Optional[str] = None,
+        new_profile: bool = True,
+        private: bool = False,
+    ) -> dict:
+        return firefox.launch_firefox_impl(
+            urls, slot, desktop, label, new_profile, private
         )
 
     def launch_terminal(
