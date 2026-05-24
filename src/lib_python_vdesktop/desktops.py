@@ -174,8 +174,13 @@ def unpin_window_impl(handle_id: str) -> dict:
     _require()
     tw = REGISTRY.require(handle_id)
     view = pyvda.AppView(hwnd=tw.hwnd)
+    already_unpinned = not bool(view.is_pinned())
     view.unpin()
-    return {"handle_id": handle_id, "window_pinned": bool(view.is_pinned())}
+    return {
+        "handle_id": handle_id,
+        "window_pinned": bool(view.is_pinned()),
+        "already_unpinned": already_unpinned,
+    }
 
 
 def pin_app_all_desktops_impl(handle_id: str) -> dict:
@@ -214,11 +219,13 @@ def unpin_app_impl(handle_id: str) -> dict:
     _require()
     tw = REGISTRY.require(handle_id)
     view = pyvda.AppView(hwnd=tw.hwnd)
+    already_unpinned = not bool(view.is_app_pinned())
     view.unpin_app()
     return {
         "handle_id": handle_id,
         "app_pinned": bool(view.is_app_pinned()),
         "scope": "app",
+        "already_unpinned": already_unpinned,
         "warning": (
             "unpin_app operates on the application's AUMID and affects ALL windows "
             "of this application, including those not managed by this session."

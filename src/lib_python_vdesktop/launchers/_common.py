@@ -13,6 +13,7 @@ from .. import desktops as desktops_mod
 from .._win32_helpers import (
     get_window_classname,
     get_window_pid,
+    get_window_rect,
     get_window_title,
 )
 from ..layouts import lookup_slot
@@ -340,6 +341,14 @@ def launch_and_register(
     desktop_guid, applied_bounds = _placement_phase(
         hwnd, desktop=desktop, slot=slot
     )
+    # When no slot was requested, _placement_phase leaves applied_bounds None.
+    # Fall back to querying Win32 so the caller gets real coordinates instead
+    # of null and doesn't need a follow-up list_windows call.
+    if applied_bounds is None:
+        try:
+            applied_bounds = get_window_rect(hwnd)
+        except OSError as exc:
+            log.debug("launch_and_register: get_window_rect(%s) failed: %s", hwnd, exc)
     # Belt-and-suspenders: if a race made `tracked` stale and we somehow
     # resolved onto an existing HWND anyway, the caller deserves to know.
     prior = REGISTRY.find_by_hwnd(hwnd)

@@ -35,6 +35,20 @@ SW_MAXIMIZE = 3
 SW_SHOWNORMAL = 1
 
 
+def _window_state(hwnd: int) -> str:
+    """Return the current show-state of an HWND as a string.
+
+    Uses Win32 IsIconic / IsZoomed — no pyvda dependency.
+    Minimized takes precedence over maximized (a minimized window can also
+    report IsZoomed if it was maximised before being minimised).
+    """
+    if _user32.IsIconic(hwnd):
+        return "minimized"
+    if _user32.IsZoomed(hwnd):
+        return "maximized"
+    return "restored"
+
+
 def _get_window_rect(hwnd: int) -> wintypes.RECT:
     rect = wintypes.RECT()
     _user32.GetWindowRect(hwnd, byref(rect))
@@ -168,9 +182,11 @@ def list_windows_impl(
                 "w": rect.right - rect.left,
                 "h": rect.bottom - rect.top,
             }
+            state: Optional[str] = _window_state(tw.hwnd)
         except OSError as exc:
             log.debug("list_windows: GetWindowRect(%s) failed: %s", tw.hwnd, exc)
             bounds = tw.bounds
+            state = None
         try:
             title = get_window_title(tw.hwnd)
         except OSError as exc:
@@ -188,6 +204,7 @@ def list_windows_impl(
                 "desktop_guid": tw.desktop_guid,
                 "slot_id": tw.slot_id,
                 "bounds": bounds,
+                "state": state,
                 "is_pinned": window_pinned,
                 "is_app_pinned": app_pinned,
             }
@@ -245,16 +262,16 @@ def relabel_window_impl(handle_id: str, new_label: Optional[str]) -> dict:
 def minimize_window_impl(handle_id: str) -> dict:
     tw = REGISTRY.require(handle_id)
     _user32.ShowWindow(tw.hwnd, SW_MINIMIZE)
-    return {"handle_id": handle_id, "state": "minimized"}
+    return {"handle_id": handle_id, "state": _window_state(tw.hwnd)}
 
 
 def maximize_window_impl(handle_id: str) -> dict:
     tw = REGISTRY.require(handle_id)
     _user32.ShowWindow(tw.hwnd, SW_MAXIMIZE)
-    return {"handle_id": handle_id, "state": "maximized"}
+    return {"handle_id": handle_id, "state": _window_state(tw.hwnd)}
 
 
 def restore_window_impl(handle_id: str) -> dict:
     tw = REGISTRY.require(handle_id)
     _user32.ShowWindow(tw.hwnd, SW_RESTORE)
-    return {"handle_id": handle_id, "state": "restored"}
+    return {"handle_id": handle_id, "state": _window_state(tw.hwnd)}
