@@ -28,10 +28,14 @@ _Slot = dict
 
 
 def _columns(splits: list[float], slot_prefix: str = "col") -> list[_Slot]:
+    if not splits:
+        raise ValueError("column splits must not be empty")
+    if any(s <= 0 for s in splits):
+        raise ValueError("splits must all be positive and sum to 100")
     total = sum(splits)
-    if total <= 0:
-        raise ValueError("column splits must sum to > 0")
-    norm = [s / total * 100 for s in splits]
+    if abs(total - 100) > 0.5:
+        raise ValueError(f"splits must sum to 100 (got {total:.4g})")
+    norm = splits
     slots: list[_Slot] = []
     x = 0.0
     for i, w in enumerate(norm):
@@ -49,10 +53,14 @@ def _columns(splits: list[float], slot_prefix: str = "col") -> list[_Slot]:
 
 
 def _rows(splits: list[float], slot_prefix: str = "row") -> list[_Slot]:
+    if not splits:
+        raise ValueError("row splits must not be empty")
+    if any(s <= 0 for s in splits):
+        raise ValueError("splits must all be positive and sum to 100")
     total = sum(splits)
-    if total <= 0:
-        raise ValueError("row splits must sum to > 0")
-    norm = [s / total * 100 for s in splits]
+    if abs(total - 100) > 0.5:
+        raise ValueError(f"splits must sum to 100 (got {total:.4g})")
+    norm = splits
     slots: list[_Slot] = []
     y = 0.0
     for i, h in enumerate(norm):

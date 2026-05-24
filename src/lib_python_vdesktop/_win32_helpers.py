@@ -42,3 +42,7 @@ def get_window_rect(hwnd: int) -> dict:
         "w": rect.right - rect.left,
         "h": rect.bottom - rect.top,
     }
+
+
+def is_window(hwnd: int) -> bool:
+    return bool(_user32.IsWindow(hwnd))
