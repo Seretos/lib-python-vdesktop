@@ -179,29 +179,67 @@ def unpin_window_impl(handle_id: str) -> dict:
 
 
 def pin_app_all_desktops_impl(handle_id: str) -> dict:
+    """Pin all windows of this application's AUMID across all virtual desktops.
+
+    WARNING: The OS ``IVirtualDesktopPinnedApps`` COM interface operates by
+    AUMID (application user model ID), not by HWND.  Calling this function
+    affects *every* open window of the same application, including those that
+    are not managed by this session.  Use ``pin_window_all_desktops_impl`` for
+    per-window pinning.
+    """
     _require()
     tw = REGISTRY.require(handle_id)
     view = pyvda.AppView(hwnd=tw.hwnd)
     view.pin_app()
-    return {"handle_id": handle_id, "app_pinned": bool(view.is_app_pinned())}
+    return {
+        "handle_id": handle_id,
+        "app_pinned": bool(view.is_app_pinned()),
+        "scope": "app",
+        "warning": (
+            "pin_app operates on the application's AUMID and affects ALL windows "
+            "of this application, including those not managed by this session."
+        ),
+    }
 
 
 def unpin_app_impl(handle_id: str) -> dict:
+    """Unpin all windows of this application's AUMID from cross-desktop visibility.
+
+    WARNING: The OS ``IVirtualDesktopPinnedApps`` COM interface operates by
+    AUMID (application user model ID), not by HWND.  Calling this function
+    affects *every* open window of the same application, including those that
+    are not managed by this session.  Use ``unpin_window_impl`` for per-window
+    unpinning.
+    """
     _require()
     tw = REGISTRY.require(handle_id)
     view = pyvda.AppView(hwnd=tw.hwnd)
     view.unpin_app()
-    return {"handle_id": handle_id, "app_pinned": bool(view.is_app_pinned())}
+    return {
+        "handle_id": handle_id,
+        "app_pinned": bool(view.is_app_pinned()),
+        "scope": "app",
+        "warning": (
+            "unpin_app operates on the application's AUMID and affects ALL windows "
+            "of this application, including those not managed by this session."
+        ),
+    }
 
 
 def is_pinned_impl(handle_id: str) -> dict:
     _require()
     tw = REGISTRY.require(handle_id)
     view = pyvda.AppView(hwnd=tw.hwnd)
+    app_pinned = bool(view.is_app_pinned())
+    # window_pinned is only True when the window itself is pinned via HWND
+    # (view.pin()), NOT when the whole app is pinned via AUMID.  The OS
+    # reports is_pinned() True in both cases, so we subtract the app-pin
+    # contribution to get strict per-window semantics.
+    window_pinned = bool(view.is_pinned()) and not app_pinned
     return {
         "handle_id": handle_id,
-        "window_pinned": bool(view.is_pinned()),
-        "app_pinned": bool(view.is_app_pinned()),
+        "window_pinned": window_pinned,
+        "app_pinned": app_pinned,
     }
 
 
@@ -215,16 +253,23 @@ def pin_state_for_hwnd(hwnd: int) -> tuple[Optional[bool], Optional[bool]]:
         return (None, None)
     try:
         view = pyvda.AppView(hwnd=hwnd)
-        win_pinned = bool(view.is_pinned())
+        raw_win_pinned = bool(view.is_pinned())
     except Exception as exc:  # noqa: BLE001
         log.debug("pin_state_for_hwnd(%s): is_pinned failed: %s", hwnd, exc)
-        win_pinned = None
+        raw_win_pinned = None
     try:
         view = pyvda.AppView(hwnd=hwnd)
         app_pinned = bool(view.is_app_pinned())
     except Exception as exc:  # noqa: BLE001
         log.debug("pin_state_for_hwnd(%s): is_app_pinned failed: %s", hwnd, exc)
         app_pinned = None
+    # Apply strict per-window semantics: window_pinned is only True when
+    # pinned via HWND (view.pin()), not when the whole app-AUMID is pinned.
+    # Guard against None from either path.
+    if raw_win_pinned is None or app_pinned is None:
+        win_pinned = raw_win_pinned
+    else:
+        win_pinned = raw_win_pinned and not app_pinned
     return (win_pinned, app_pinned)
 
 
