@@ -235,3 +235,75 @@ def test_pin_app_returns_app_pinned_true(fake_pyvda):
     result = desktops_mod.pin_app_all_desktops_impl(_handle(tw))
     assert result["app_pinned"] is True
     assert result["handle_id"] == _handle(tw)
+
+
+# ===========================================================================
+# Gap 3 regression: already_unpinned signal in unpin impls
+# ===========================================================================
+
+
+@pytest.mark.parametrize("fake_pyvda", [{"is_pinned": False, "is_app_pinned": False}], indirect=True)
+def test_unpin_window_already_unpinned_true(fake_pyvda):
+    """unpin_window_impl on an already-unpinned window must set already_unpinned=True."""
+    _stub, tw = fake_pyvda
+    result = desktops_mod.unpin_window_impl(_handle(tw))
+    assert "already_unpinned" in result, "result must contain 'already_unpinned'"
+    assert result["already_unpinned"] is True, (
+        "already_unpinned must be True when the window was not pinned before the call"
+    )
+
+
+@pytest.mark.parametrize("fake_pyvda", [{"is_pinned": True, "is_app_pinned": False}], indirect=True)
+def test_unpin_window_already_unpinned_false(fake_pyvda):
+    """unpin_window_impl on a pinned window must set already_unpinned=False."""
+    _stub, tw = fake_pyvda
+    result = desktops_mod.unpin_window_impl(_handle(tw))
+    assert "already_unpinned" in result, "result must contain 'already_unpinned'"
+    assert result["already_unpinned"] is False, (
+        "already_unpinned must be False when the window was pinned before the call"
+    )
+
+
+@pytest.mark.parametrize("fake_pyvda", [{"is_pinned": False, "is_app_pinned": False}], indirect=True)
+def test_unpin_app_already_unpinned_true(fake_pyvda):
+    """unpin_app_impl on an already-unpinned app must set already_unpinned=True."""
+    _stub, tw = fake_pyvda
+    result = desktops_mod.unpin_app_impl(_handle(tw))
+    assert "already_unpinned" in result, "result must contain 'already_unpinned'"
+    assert result["already_unpinned"] is True, (
+        "already_unpinned must be True when the app was not pinned before the call"
+    )
+
+
+@pytest.mark.parametrize("fake_pyvda", [{"is_pinned": True, "is_app_pinned": True}], indirect=True)
+def test_unpin_app_already_unpinned_false(fake_pyvda):
+    """unpin_app_impl on a pinned app must set already_unpinned=False."""
+    _stub, tw = fake_pyvda
+    result = desktops_mod.unpin_app_impl(_handle(tw))
+    assert "already_unpinned" in result, "result must contain 'already_unpinned'"
+    assert result["already_unpinned"] is False, (
+        "already_unpinned must be False when the app was pinned before the call"
+    )
+
+
+@pytest.mark.parametrize("fake_pyvda", [{"is_pinned": True, "is_app_pinned": False}], indirect=True)
+def test_unpin_window_preserves_existing_keys(fake_pyvda):
+    """unpin_window_impl must preserve 'handle_id' and 'window_pinned' keys."""
+    _stub, tw = fake_pyvda
+    result = desktops_mod.unpin_window_impl(_handle(tw))
+    assert "handle_id" in result
+    assert "window_pinned" in result
+    # After unpin, the window should no longer be pinned.
+    assert result["window_pinned"] is False
+
+
+@pytest.mark.parametrize("fake_pyvda", [{"is_pinned": True, "is_app_pinned": True}], indirect=True)
+def test_unpin_app_preserves_existing_keys(fake_pyvda):
+    """unpin_app_impl must preserve 'handle_id', 'app_pinned', 'scope', 'warning' keys."""
+    _stub, tw = fake_pyvda
+    result = desktops_mod.unpin_app_impl(_handle(tw))
+    assert "handle_id" in result
+    assert "app_pinned" in result
+    assert "scope" in result
+    assert "warning" in result
+    assert result["scope"] == "app"
