@@ -94,7 +94,11 @@ jobs:
 
           git checkout -B "$BRANCH"
           git add pyproject.toml
-          git commit -m "release: ${TAG}"
+          # --allow-empty: when the requested version equals the version already
+          # committed in pyproject.toml (e.g. the very first release matching the
+          # repo's placeholder), the sed stamp is a no-op and there is nothing to
+          # commit. We still want a dedicated release commit on the branch to tag.
+          git commit -m "release: ${TAG}" --allow-empty
 
           git tag -a "$TAG" -m "${TAG}"
 
@@ -124,6 +128,11 @@ jobs:
       # last, after the release artifacts are published, so a ticket hiccup
       # never blocks the release itself — use ticket.yml to re-file by hand.
       - name: Open dependency-update ticket in consumers
+        # Non-fatal: the release artifacts (tag, release/Nx, GitHub Release) are
+        # already published by the steps above. A missing/expired
+        # VDESKTOP_TICKET_TOKEN or a missing `dependencies` label must not red-X
+        # the release — re-file the ticket via ticket.yml once that's fixed.
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.VDESKTOP_TICKET_TOKEN }}
