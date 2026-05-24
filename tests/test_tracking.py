@@ -123,6 +123,48 @@ def test_find_by_hwnd(reg):
     assert reg.find_by_hwnd(99999) is None
 
 
+# ---------------------------------------------------------------------------
+# F8 — relabel duplicate check
+# ---------------------------------------------------------------------------
+
+
+def test_relabel_rejects_duplicate_label(reg):
+    """Assigning a label that is already used by another tracked window must
+    raise ValueError with 'label.duplicate'."""
+    tw_a = reg.register(hwnd=900, pid=1, app_type="chrome", label="unique-label")
+    tw_b = reg.register(hwnd=901, pid=2, app_type="vscode")
+
+    with pytest.raises(ValueError, match="label.duplicate"):
+        reg.relabel(tw_b.handle_id, "unique-label")
+
+
+def test_relabel_clear_label_always_allowed(reg):
+    """Clearing a label (label=None) must always succeed even if other windows
+    have labels."""
+    tw_a = reg.register(hwnd=902, pid=1, app_type="chrome", label="some-label")
+    tw_b = reg.register(hwnd=903, pid=2, app_type="chrome", label="another-label")
+
+    # Clearing tw_a's label must not raise, regardless of tw_b's label.
+    reg.relabel(tw_a.handle_id, None)
+    assert reg.get(tw_a.handle_id).label is None
+
+
+def test_relabel_same_window_same_label_no_conflict(reg):
+    """Relabeling a window to its own current label must not raise ValueError."""
+    tw = reg.register(hwnd=904, pid=1, app_type="chrome", label="my-window")
+
+    # Should not raise.
+    reg.relabel(tw.handle_id, "my-window")
+    assert reg.get(tw.handle_id).label == "my-window"
+
+
+def test_relabel_unique_label_allowed(reg):
+    """Assigning a completely new, unused label must succeed."""
+    tw = reg.register(hwnd=905, pid=1, app_type="chrome", label="old")
+    reg.relabel(tw.handle_id, "brand-new")
+    assert reg.get(tw.handle_id).label == "brand-new"
+
+
 def test_concurrent_register_thread_safe(reg):
     """100 threads register distinct hwnds — exactly 100 entries should result."""
     def do_register(hwnd):

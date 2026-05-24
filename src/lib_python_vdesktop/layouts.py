@@ -189,16 +189,19 @@ def _resolve_single(spec: dict, mon_lookup: dict[int, Monitor]) -> list[dict]:
         pct_slots = _grid(int(spec.get("cols", 0)), int(spec.get("rows", 0)))
     elif spec_type == "regions":
         regions = spec.get("regions", [])
-        pct_slots = [
-            {
-                "slot_id": str(r["id"]),
-                "x_pct": float(r["x_pct"]),
-                "y_pct": float(r["y_pct"]),
-                "w_pct": float(r["w_pct"]),
-                "h_pct": float(r["h_pct"]),
-            }
-            for r in regions
-        ]
+        pct_slots = []
+        for r in regions:
+            slot_dict: dict = {"slot_id": str(r["id"])}
+            for key in ("x_pct", "y_pct", "w_pct", "h_pct"):
+                raw = float(r[key])
+                clamped = max(0.0, min(100.0, raw))
+                if clamped != raw:
+                    log.warning(
+                        "regions: %r for slot %r clamped from %g to %g",
+                        key, r["id"], raw, clamped,
+                    )
+                slot_dict[key] = clamped
+            pct_slots.append(slot_dict)
     else:
         raise ValueError(
             f"Unknown layout spec type: {spec_type!r}. "
@@ -283,6 +286,43 @@ def list_layout_presets_impl() -> list[dict]:
     ]
 
 
+def fill_layout_impl(
+    handle_ids: list[str],
+    spec: LayoutSpec,
+    target_desktop: Optional[Union[int, str]] = None,
+) -> list[dict]:
+    """Apply a layout spec and move the given windows into the resulting slots
+    in order, one-to-one.
+
+    Excess handle_ids beyond the slot count are silently left unmoved.
+    Excess slots beyond the handle_id count are silently skipped.
+
+    Returns a list of {"handle_id": str, "slot_id": str, "bounds": dict} for
+    each window that was successfully placed.
+
+    NOTE: Imports windows lazily to avoid a circular import (layouts is
+    imported by windows at module load time).
+    """
+    # Apply the layout first (may raise on unknown desktop — F9 behaviour).
+    slots = apply_layout_impl(spec, target_desktop)
+
+    # Lazy import to avoid circular dependency: layouts <- windows imports layouts.
+    from . import windows as windows_mod  # noqa: PLC0415
+
+    result: list[dict] = []
+    for handle_id, slot in zip(handle_ids, slots):
+        slot_id = slot["slot_id"]
+        move_result = windows_mod.move_window_impl(handle_id, {"slot": slot_id})
+        result.append(
+            {
+                "handle_id": handle_id,
+                "slot_id": slot_id,
+                "bounds": move_result["bounds"],
+            }
+        )
+    return result
+
+
 def apply_layout_impl(
     spec: LayoutSpec,
     target_desktop: Optional[Union[int, str]] = None,
@@ -291,13 +331,22 @@ def apply_layout_impl(
     desktop (default: current). Returns the slot rectangles."""
     slots = compute_slots(spec)
     # Resolve desktop GUID for cache scoping.
+    # F9: when target_desktop is explicitly provided, let ValueError propagate
+    # so the caller gets a clear "unknown desktop" error. Only skip resolution
+    # when target_desktop is None (meaning "current desktop").
     desktop_guid: Optional[str] = None
-    try:
+    if target_desktop is not None:
         from .desktops import resolve_desktop
 
         desktop = resolve_desktop(target_desktop)
         desktop_guid = str(desktop.id)
-    except Exception as exc:  # noqa: BLE001
-        log.debug("apply_layout: could not resolve desktop: %s", exc)
+    else:
+        try:
+            from .desktops import resolve_desktop
+
+            desktop = resolve_desktop(None)
+            desktop_guid = str(desktop.id)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("apply_layout: could not resolve current desktop: %s", exc)
     remember_layout(desktop_guid, slots)
     return slots

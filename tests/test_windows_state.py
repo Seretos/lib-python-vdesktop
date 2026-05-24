@@ -215,3 +215,83 @@ def test_restore_window_impl_state_uses_window_state(monkeypatch):
 
     result = windows_mod.restore_window_impl(tw.handle_id)
     assert result["state"] == "restored"
+
+
+# ---------------------------------------------------------------------------
+# U2: focus_window_impl returns resolved_handle_id
+# ---------------------------------------------------------------------------
+
+
+def test_focus_window_impl_resolved_handle_id_equals_input_when_canonical(monkeypatch):
+    """When handle_id is the canonical handle_id (not a label), resolved_handle_id
+    must equal handle_id."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+    monkeypatch.setattr(windows_mod, "_user32", _fake_user32())
+    # Stub focus_window_hwnd to avoid real Win32 calls.
+    monkeypatch.setattr(windows_mod, "focus_window_hwnd", lambda hwnd: None)
+
+    result = windows_mod.focus_window_impl(tw.handle_id)
+
+    assert result["focused"] is True
+    assert "resolved_handle_id" in result, "focus_window_impl must return resolved_handle_id"
+    assert result["resolved_handle_id"] == tw.handle_id
+    assert result["handle_id"] == tw.handle_id
+
+
+def test_focus_window_impl_returns_resolved_handle_id_for_label_lookup(monkeypatch):
+    """When the caller uses a label, handle_id in the result is the label (input),
+    while resolved_handle_id is the canonical handle_id from the registry."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test", label="my-win")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+    monkeypatch.setattr(windows_mod, "_user32", _fake_user32())
+    monkeypatch.setattr(windows_mod, "focus_window_hwnd", lambda hwnd: None)
+
+    result = windows_mod.focus_window_impl("my-win")
+
+    assert result["focused"] is True
+    assert result["handle_id"] == "my-win"          # the input as-given
+    assert result["resolved_handle_id"] == tw.handle_id  # the canonical ID
+
+
+# ---------------------------------------------------------------------------
+# U3: get_window_impl
+# ---------------------------------------------------------------------------
+
+
+def test_get_window_impl_returns_dict(monkeypatch):
+    """get_window_impl must return a dict with the expected fields."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    result = windows_mod.get_window_impl(tw.handle_id)
+
+    assert isinstance(result, dict)
+    assert result["handle_id"] == tw.handle_id
+    assert result["hwnd"] == _FAKE_HWND
+    assert result["pid"] == _FAKE_PID
+    assert result["app_type"] == "test"
+
+
+def test_get_window_impl_label_resolution(monkeypatch):
+    """get_window_impl must resolve by label as well as by handle_id."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test", label="my-label")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    result = windows_mod.get_window_impl("my-label")
+
+    assert result["handle_id"] == tw.handle_id
+    assert result["label"] == "my-label"
+
+
+def test_get_window_impl_missing_raises_key_error(monkeypatch):
+    """get_window_impl must raise KeyError when the handle/label is not tracked."""
+    r = Registry()
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    with pytest.raises(KeyError):
+        windows_mod.get_window_impl("does-not-exist")
