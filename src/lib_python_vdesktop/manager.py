@@ -74,6 +74,9 @@ class VDesktopManager:
     ) -> list[dict]:
         return windows.list_windows_impl(desktop, include_unmanaged)
 
+    def get_window(self, handle_id: str) -> dict:
+        return windows.get_window_impl(handle_id)
+
     def move_window(self, handle_id: str, target: dict) -> dict:
         return windows.move_window_impl(handle_id, target)
 
@@ -113,6 +116,14 @@ class VDesktopManager:
         self, spec: LayoutSpec, target_desktop: Optional[DesktopRef] = None
     ) -> list[dict]:
         return layouts.apply_layout_impl(spec, target_desktop)
+
+    def fill_layout(
+        self,
+        handle_ids: list[str],
+        spec: LayoutSpec,
+        target_desktop: Optional[DesktopRef] = None,
+    ) -> list[dict]:
+        return layouts.fill_layout_impl(handle_ids, spec, target_desktop)
 
     # -- launchers ----------------------------------------------------------
 

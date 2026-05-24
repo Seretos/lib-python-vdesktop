@@ -355,15 +355,24 @@ def launch_and_register(
         class_filter=class_filter,
         pre_spawn_snapshot=pre_spawn_snapshot,
     )
-    hwnd = _resolve_hwnd_phase(
-        proc,
-        app_type=app_type,
-        title_hint=title_hint,
-        class_filter=class_filter,
-        previous=previous,
-        tracked=tracked,
-        resolve_timeout_ms=resolve_timeout_ms,
-    )
+    # F15: if HWND resolution fails, kill the orphan process before re-raising
+    # the RuntimeError so we don't leave orphan processes behind.
+    try:
+        hwnd = _resolve_hwnd_phase(
+            proc,
+            app_type=app_type,
+            title_hint=title_hint,
+            class_filter=class_filter,
+            previous=previous,
+            tracked=tracked,
+            resolve_timeout_ms=resolve_timeout_ms,
+        )
+    except RuntimeError:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        raise
     desktop_guid, applied_bounds = _placement_phase(
         hwnd, desktop=desktop, slot=slot
     )

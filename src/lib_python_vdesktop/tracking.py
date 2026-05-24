@@ -107,6 +107,16 @@ class Registry:
 
     def relabel(self, handle_id: str, label: Optional[str]) -> None:
         with self._lock:
+            # F8: clearing a label (label=None) is always allowed.
+            # Relabeling a window to its own current label is also allowed.
+            # Any other collision with an existing label is rejected.
+            if label is not None:
+                for candidate in self._by_id.values():
+                    if candidate.label == label and candidate.handle_id != handle_id:
+                        raise ValueError(
+                            f"label.duplicate: label {label!r} is already assigned "
+                            f"to handle_id {candidate.handle_id!r}"
+                        )
             tw = self._by_id.get(handle_id)
             if tw is not None:
                 tw.label = label

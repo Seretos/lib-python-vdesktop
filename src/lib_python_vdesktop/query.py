@@ -27,7 +27,15 @@ def find_window_by_title_impl(
     """Enumerate visible top-level windows whose title matches `pattern`.
     Returns a list of {hwnd, title, class_name, desktop_guid, handle_id?, label?}.
     """
-    compiled = re.compile(pattern) if regex else None
+    if regex:
+        try:
+            compiled = re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(
+                f"pattern: invalid regex in 'pattern' argument: {exc}"
+            ) from exc
+    else:
+        compiled = None
     desktop_guid: Optional[str] = None
     if desktop is not None:
         d = desktops_mod.resolve_desktop(desktop)
@@ -87,7 +95,15 @@ def find_chrome_tab_impl(
             "find_chrome_tab requires the `uiautomation` package on Windows."
         ) from exc
 
-    compiled = re.compile(pattern) if regex else None
+    if regex:
+        try:
+            compiled = re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(
+                f"pattern: invalid regex in 'pattern' argument: {exc}"
+            ) from exc
+    else:
+        compiled = None
     results: list[dict] = []
 
     def _tab_title_matches(tab_title: str) -> bool:
@@ -116,10 +132,13 @@ def find_chrome_tab_impl(
             }
         )
 
+    # F6: Keep the ClassName guard to identify Chrome windows, but drop the
+    # w.Name substring check — Chrome windows in non-English locales or with
+    # custom titles would otherwise be silently excluded.
     chrome_windows = [
         w for w in uia.GetRootControl().GetChildren()
         if w.ClassName == CHROME_WIDGET_CLASS
-        and ("Google Chrome" in (w.Name or "") or "Chromium" in (w.Name or ""))
+        and (w.Name or "")  # must have a non-empty title (real window, not splash)
     ]
     log.debug("find_chrome_tab: %d Chrome window(s) visible", len(chrome_windows))
 

@@ -12,6 +12,7 @@ from lib_python_vdesktop.layouts import (
     _named_columns,
     _resolve_single,
     _rows,
+    apply_layout_impl,
     find_slot,
     lookup_slot,
     remember_layout,
@@ -310,6 +311,123 @@ def test_lookup_slot_returns_none_when_missing():
     layouts._LAST_LAYOUT.clear()
     layouts._GLOBAL_LAST = []
     assert lookup_slot("nope") is None
+
+
+# --- F11: _columns sum validation regression ---------------------------------
+
+
+def test_columns_sum_150_raises():
+    """_columns([50, 50, 50]) sums to 150, which must raise ValueError
+    matching 'sum to 100'. Regression test to lock this behaviour."""
+    with pytest.raises(ValueError, match="sum to 100"):
+        _columns([50, 50, 50])
+
+
+# --- F12: regions percentage clamping ----------------------------------------
+
+
+def test_regions_clamps_oversized_w_h_pct(primary_monitor):
+    """regions w_pct or h_pct > 100 must be clamped to 100."""
+    slots = _resolve_single(
+        {
+            "type": "regions",
+            "monitor": 0,
+            "regions": [
+                {"id": "big", "x_pct": 0, "y_pct": 0, "w_pct": 150, "h_pct": 120},
+            ],
+        },
+        {0: primary_monitor},
+    )
+    assert len(slots) == 1
+    bounds = slots[0]["bounds"]
+    # After clamping w_pct=100, h_pct=100 the slot should fill the monitor.
+    assert bounds["w"] == 1920
+    assert bounds["h"] == 1080
+
+
+def test_regions_clamps_negative_pct(primary_monitor):
+    """Negative percentages in regions must be clamped to 0."""
+    slots = _resolve_single(
+        {
+            "type": "regions",
+            "monitor": 0,
+            "regions": [
+                {"id": "neg", "x_pct": -10, "y_pct": -20, "w_pct": 50, "h_pct": 50},
+            ],
+        },
+        {0: primary_monitor},
+    )
+    assert len(slots) == 1
+    bounds = slots[0]["bounds"]
+    # x_pct=-10 clamped to 0 → x starts at monitor origin x=0.
+    assert bounds["x"] == 0
+    # y_pct=-20 clamped to 0 → y starts at monitor origin y=0.
+    assert bounds["y"] == 0
+
+
+def test_regions_valid_pct_unchanged(primary_monitor):
+    """Valid percentages within [0,100] must pass through unclamped."""
+    slots = _resolve_single(
+        {
+            "type": "regions",
+            "monitor": 0,
+            "regions": [
+                {"id": "main", "x_pct": 0, "y_pct": 0, "w_pct": 70, "h_pct": 100},
+            ],
+        },
+        {0: primary_monitor},
+    )
+    assert len(slots) == 1
+    bounds = slots[0]["bounds"]
+    assert bounds["w"] == int(round(0.70 * 1920))
+
+
+# --- F9: apply_layout_impl raises on unknown desktop -------------------------
+
+
+def test_apply_layout_unknown_desktop_raises(monkeypatch, primary_monitor):
+    """When target_desktop is not None and resolve_desktop raises ValueError,
+    apply_layout_impl must propagate it (not swallow it)."""
+    import lib_python_vdesktop.desktops as desktops_mod
+
+    # Make list_monitors return the fake primary monitor.
+    monkeypatch.setattr(
+        layouts,
+        "list_monitors",
+        lambda: [primary_monitor],
+    )
+
+    # Stub resolve_desktop so it raises ValueError for any non-None input.
+    def bad_resolve(ref):
+        raise ValueError(f"Unknown desktop reference: {ref!r}")
+
+    monkeypatch.setattr(desktops_mod, "resolve_desktop", bad_resolve)
+
+    with pytest.raises(ValueError, match="Unknown desktop reference"):
+        apply_layout_impl(
+            {"type": "preset", "name": "two-columns"},
+            target_desktop="nonexistent-desktop",
+        )
+
+
+def test_apply_layout_no_desktop_succeeds(monkeypatch, primary_monitor):
+    """When target_desktop is None, desktop resolution failure is non-fatal
+    (pyvda may not be available in CI) — the layout is returned anyway."""
+    monkeypatch.setattr(
+        layouts,
+        "list_monitors",
+        lambda: [primary_monitor],
+    )
+    # Simulate pyvda unavailable: resolve_desktop(None) raises RuntimeError.
+    import lib_python_vdesktop.desktops as desktops_mod
+    monkeypatch.setattr(desktops_mod, "pyvda", None)
+
+    # Should not raise — pyvda unavailability is tolerated when target is None.
+    result = apply_layout_impl(
+        {"type": "preset", "name": "two-columns"},
+        target_desktop=None,
+    )
+    assert len(result) == 2
 
 
 # --- preset catalog smoke ----------------------------------------------------

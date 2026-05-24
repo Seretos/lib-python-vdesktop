@@ -12,7 +12,7 @@ from typing import Optional, Union
 from . import adoption, desktops as desktops_mod
 from ._win32_helpers import get_window_title
 from .layouts import lookup_slot
-from .monitors import monitor_for_hwnd
+from .monitors import _virtual_screen_rect, monitor_for_hwnd
 from .tracking import REGISTRY
 
 log = logging.getLogger("vdesktop.windows")
@@ -33,6 +33,11 @@ SW_RESTORE = 9
 SW_MINIMIZE = 6
 SW_MAXIMIZE = 3
 SW_SHOWNORMAL = 1
+
+# Minimum number of pixels of the visible window frame that must remain
+# inside the virtual screen after a move.  Prevents windows from being
+# moved entirely off-screen.
+_MIN_VISIBLE = 32
 
 
 def _window_state(hwnd: int) -> str:
@@ -90,6 +95,10 @@ def move_to_bounds(hwnd: int, bounds: dict) -> dict:
     """Move/resize a window so its **visible** frame matches `bounds` exactly,
     compensating for DWM drop-shadow margins. Returns the bounds actually
     applied (visible).
+
+    F13: Before calling SetWindowPos, the target visible position is clamped so
+    that at least _MIN_VISIBLE (32) pixels of the visible frame remain within the
+    virtual-screen bounding rectangle.  A warning is logged when clamping fires.
     """
     bx, by = int(bounds["x"]), int(bounds["y"])
     bw, bh = int(bounds["w"]), int(bounds["h"])
@@ -97,6 +106,27 @@ def move_to_bounds(hwnd: int, bounds: dict) -> dict:
         raise ValueError(
             f"move_to_bounds: width and height must be positive, got w={bw}, h={bh}"
         )
+    # F13: clamp the requested visible position so ≥_MIN_VISIBLE px stay on-screen.
+    try:
+        vsr = _virtual_screen_rect()
+        vx, vy, vw, vh = vsr["x"], vsr["y"], vsr["w"], vsr["h"]
+        # x: must not push the window so far right that <_MIN_VISIBLE remain visible.
+        x_min = vx - bw + _MIN_VISIBLE          # leftmost allowed visible x
+        x_max = vx + vw - _MIN_VISIBLE           # rightmost allowed visible x
+        # y: same logic vertically.
+        y_min = vy - bh + _MIN_VISIBLE
+        y_max = vy + vh - _MIN_VISIBLE
+        clamped_bx = max(x_min, min(x_max, bx))
+        clamped_by = max(y_min, min(y_max, by))
+        if clamped_bx != bx or clamped_by != by:
+            log.warning(
+                "move_to_bounds: clamped position from (%d, %d) to (%d, %d) "
+                "to keep window on virtual screen",
+                bx, by, clamped_bx, clamped_by,
+            )
+        bx, by = clamped_bx, clamped_by
+    except Exception as exc:  # noqa: BLE001
+        log.debug("move_to_bounds: _virtual_screen_rect failed: %s", exc)
     sx, sy, sr, sb = _shadow_margins(hwnd)
     x = bx - sx
     y = by - sy
@@ -250,7 +280,19 @@ def close_window_impl(handle_id: str, force: bool = False) -> dict:
 def focus_window_impl(handle_id: str) -> dict:
     tw = REGISTRY.require(handle_id)
     focus_window_hwnd(tw.hwnd)
-    return {"handle_id": handle_id, "focused": True}
+    # U2: include resolved_handle_id so callers can discover the canonical
+    # handle_id when they looked up by label.
+    return {"handle_id": handle_id, "resolved_handle_id": tw.handle_id, "focused": True}
+
+
+def get_window_impl(handle_id: str) -> dict:
+    """Return the registry record for a single tracked window as a dict.
+
+    Resolves by handle_id or by label (via REGISTRY.require). Raises KeyError
+    when no matching window is tracked.
+    """
+    tw = REGISTRY.require(handle_id)
+    return tw.to_dict()
 
 
 def relabel_window_impl(handle_id: str, new_label: Optional[str]) -> dict:

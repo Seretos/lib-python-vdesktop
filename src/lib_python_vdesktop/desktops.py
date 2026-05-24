@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import unicodedata
 from typing import Optional, Union
 
 from .tracking import REGISTRY
@@ -149,8 +150,30 @@ def switch_to_desktop_impl(target: DesktopRef) -> dict:
 
 def rename_desktop_impl(target: DesktopRef, new_name: str) -> dict:
     _require()
+    # F4: reject empty / whitespace-only names.
+    cleaned = new_name.strip()
+    if not cleaned:
+        raise ValueError(
+            "desktop.name-empty: new_name must not be empty or whitespace-only"
+        )
+    # F5: reject names containing control characters.
+    for c in cleaned:
+        if unicodedata.category(c).startswith("C"):
+            raise ValueError(
+                f"desktop.name-control-chars: new_name contains control character {c!r}"
+            )
     desktop = resolve_desktop(target)
-    _rename(desktop, new_name)
+    target_guid = str(desktop.id)
+    # F3: reject names already used by a DIFFERENT desktop.
+    all_desktops = pyvda.get_virtual_desktops()
+    for i, d in enumerate(all_desktops):
+        if str(d.id) == target_guid:
+            continue  # Skip the target itself — renaming to own current name is allowed.
+        if getattr(d, "name", None) == cleaned:
+            raise ValueError(
+                f"desktop.name-already-exists: name {cleaned!r} is already used by desktop at index {i}"
+            )
+    _rename(desktop, cleaned)
     desktops = pyvda.get_virtual_desktops()
     index = next(
         (i for i, d in enumerate(desktops) if str(d.id) == str(desktop.id)),

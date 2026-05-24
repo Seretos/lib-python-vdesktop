@@ -20,6 +20,16 @@ def launch_app_impl(
     label: Optional[str] = None,
     identification: Optional[dict] = None,
 ) -> dict:
+    """Launch an arbitrary executable and register its window.
+
+    NOTE — Windows 11 Notepad singleton behaviour (F16):
+    Windows 11 Notepad is a singleton application: when launched, the OS
+    hands off to an existing Notepad process rather than creating a new one.
+    The spawned child PID exits almost immediately, making PID-based HWND
+    resolution fail.  As a workaround, pass
+    ``identification={"title_contains": "<your expected window title>"}``
+    so the title-hint fallback can locate the window instead.
+    """
     exe = to_windows(executable) if executable.startswith("/") else executable
     cmd: list[str] = [exe]
     if args:

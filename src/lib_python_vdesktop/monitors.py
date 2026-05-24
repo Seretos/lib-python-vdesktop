@@ -92,3 +92,26 @@ def _user32_window_rect(hwnd: int) -> tuple[int, int, int, int]:
     rect = wintypes.RECT()
     ctypes.windll.user32.GetWindowRect(hwnd, byref(rect))
     return rect.left, rect.top, rect.right, rect.bottom
+
+
+# System-metric indices for the virtual-screen bounding rectangle.
+_SM_XVIRTUALSCREEN = 76
+_SM_YVIRTUALSCREEN = 77
+_SM_CXVIRTUALSCREEN = 78
+_SM_CYVIRTUALSCREEN = 79
+
+
+def _virtual_screen_rect() -> dict:
+    """Return the bounding rectangle of the combined virtual screen as
+    {"x": int, "y": int, "w": int, "h": int}.
+
+    Uses four GetSystemMetrics calls — no pywin32 dependency.  On a single
+    primary monitor at (0,0) this is identical to the monitor dimensions;
+    on multi-monitor setups it covers all monitors.
+    """
+    user32 = ctypes.windll.user32
+    x = user32.GetSystemMetrics(_SM_XVIRTUALSCREEN)
+    y = user32.GetSystemMetrics(_SM_YVIRTUALSCREEN)
+    w = user32.GetSystemMetrics(_SM_CXVIRTUALSCREEN)
+    h = user32.GetSystemMetrics(_SM_CYVIRTUALSCREEN)
+    return {"x": x, "y": y, "w": w, "h": h}
