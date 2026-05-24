@@ -34,6 +34,31 @@ CREATE_NEW_PROCESS_GROUP = 0x00000200
 DETACHED_PROCESS = 0x00000008
 
 
+def _validate_cwd(cwd: Optional[str]) -> None:
+    """Validate a launch working directory before spawning.
+
+    A non-null `cwd` must point at an existing directory; we fail here with the
+    offending path named, rather than letting subprocess.Popen surface an
+    opaque OS error (or silently falling back to the server process's cwd).
+    `cwd=None` is valid and means 'inherit the server process's cwd'.
+
+    The caller is expected to have already translated POSIX paths to Windows
+    (see `pathmap.to_windows`); this validates the path as given.
+    """
+    if cwd is None:
+        return
+    if not os.path.exists(cwd):
+        raise ValueError(
+            f"cwd does not exist: {cwd!r}. Pass an existing directory, or omit "
+            "cwd to inherit the server's working directory."
+        )
+    if not os.path.isdir(cwd):
+        raise ValueError(
+            f"cwd is not a directory: {cwd!r}. Pass a directory path, or omit "
+            "cwd to inherit the server's working directory."
+        )
+
+
 def spawn(
     args: list[str],
     *,
@@ -321,6 +346,7 @@ def launch_and_register(
     pre_spawn_snapshot: bool = False,
 ) -> dict:
     """Canonical launch pipeline: spawn → resolve HWND → place → register."""
+    _validate_cwd(cwd)  # Fail clearly before spawning, not via an opaque OS error.
     tracked: set[int] = {tw.hwnd for tw in REGISTRY.all()}
     proc, previous = _spawn_phase(
         args,
