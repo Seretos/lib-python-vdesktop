@@ -1,0 +1,43 @@
+name: tests
+
+# Runs pytest on every push to any branch and on every PR. Distinct from
+# release.yml, which is workflow_dispatch-driven and produces the tag + release.
+#
+# Windows-only: several engine modules touch `ctypes.windll` at import time and
+# pyvda targets undocumented Windows COM interfaces, so the package only imports
+# on Windows. The deterministic tests (layouts / pathmap / tracking) are the
+# platform-independent logic; the COM/Win32 paths are verified manually on real
+# hardware. This matches the agent-vdesktop plugin's CI runner.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package + test deps
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+
+      - name: Run pytest
+        shell: pwsh
+        run: python -m pytest

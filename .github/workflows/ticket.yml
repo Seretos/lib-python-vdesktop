@@ -1,0 +1,62 @@
+name: open-update-ticket
+
+# Manual recovery tool. The normal release flow (release.yml) opens the
+# dependency-update ticket in consumers itself. Use this only when:
+#   - The ticket step in release.yml failed (e.g. expired VDESKTOP_TICKET_TOKEN)
+#     and you want to re-file without re-running the whole release (the tag
+#     already exists, so release.yml would refuse to re-run).
+#   - You added a new consuming repo and want to back-file a ticket for the
+#     current release.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Released version to file a ticket for (no leading v) e.g. 0.2.0"
+        required: true
+        type: string
+      consumers:
+        description: "Space-separated owner/repo list to file tickets in"
+        required: false
+        default: "Seretos/agent-vdesktop"
+        type: string
+
+jobs:
+  ticket:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open dependency-update ticket in consumers
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.VDESKTOP_TICKET_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          CONSUMERS: ${{ inputs.consumers }}
+        run: |
+          TAG="v${VERSION}"
+          TITLE="chore(deps): bump lib-python-vdesktop to ${TAG}"
+          BODY=$(cat <<EOF
+          A new release of **lib-python-vdesktop** is available: \`${TAG}\`.
+
+          Update the pin in \`pyproject.toml\`:
+
+          \`\`\`
+          lib-python-vdesktop @ git+https://github.com/${{ github.repository }}@${TAG}
+          \`\`\`
+
+          Then rebuild the \`.exe\` (\`scripts/build.ps1\`) and run the test suite.
+
+          Release notes: https://github.com/${{ github.repository }}/releases/tag/${TAG}
+          EOF
+          )
+          for REPO in $CONSUMERS; do
+            existing=$(gh issue list --repo "$REPO" --state open \
+              --search "in:title \"$TITLE\"" --json number --jq 'length')
+            if [ "$existing" != "0" ]; then
+              echo "Ticket already open in $REPO for ${TAG} — skipping."
+              continue
+            fi
+            gh issue create --repo "$REPO" \
+              --title "$TITLE" \
+              --label dependencies \
+              --body "$BODY"
+            echo "Filed update ticket in $REPO for ${TAG}."
+          done
