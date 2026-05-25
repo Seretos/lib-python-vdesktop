@@ -250,13 +250,16 @@ def _spawn_phase(
     class_filter: Optional[str],
     pre_spawn_snapshot: bool,
 ) -> tuple[subprocess.Popen, set[int]]:
-    """Snapshot pre-existing class-matching HWNDs (if requested), then spawn.
+    """Snapshot pre-existing HWNDs (if requested), then spawn.
 
-    The pre-spawn snapshot is the bedrock of resolving stub launchers like
-    wt.exe whose spawn PID exits immediately.
+    When ``pre_spawn_snapshot`` is True the snapshot is always taken — filtered
+    by ``class_filter`` when one is provided, or unfiltered (all visible
+    top-level windows) when no class_filter is given.  The unfiltered snapshot
+    is required so the title-hint fallback in ``_resolve_hwnd_phase`` can detect
+    that a resolved HWND predates the launch (singleton / hand-off apps).
     """
     previous: set[int] = set()
-    if pre_spawn_snapshot and class_filter:
+    if pre_spawn_snapshot:
         previous = snapshot_hwnds(class_filter=class_filter)
     proc = spawn(args, cwd=cwd, env=env)
     log.debug("spawned pid=%s args=%s", proc.pid, args[0])
@@ -272,11 +275,16 @@ def _resolve_hwnd_phase(
     previous: set[int],
     tracked: set[int],
     resolve_timeout_ms: int,
-) -> int:
+) -> tuple[int, bool]:
     """WaitForInputIdle → resolve by PID → fall back to title → fall back to
     new-in-class diff. Already-tracked HWNDs are excluded at every step so the
     title-match fallback can't hijack an existing window whose title happens
-    to contain `title_hint`. Raises RuntimeError if nothing resolves."""
+    to contain `title_hint`. Raises RuntimeError if nothing resolves.
+
+    Returns ``(hwnd, adopted_existing)`` where ``adopted_existing`` is True
+    when the resolved HWND was already present before the spawn (i.e. the OS
+    handed activation to a pre-existing singleton process).
+    """
     wait_for_input_idle(proc.pid, 3000)
     hwnd = resolve_hwnd(
         pid=proc.pid,
@@ -302,7 +310,8 @@ def _resolve_hwnd_phase(
             "hijacking; if the spawn truly hands off to an existing process, "
             "release that handle first or use tighter identification."
         )
-    return hwnd
+    adopted_existing = bool(previous) and hwnd in previous
+    return hwnd, adopted_existing
 
 
 def _placement_phase(
@@ -358,7 +367,7 @@ def launch_and_register(
     # F15: if HWND resolution fails, kill the orphan process before re-raising
     # the RuntimeError so we don't leave orphan processes behind.
     try:
-        hwnd = _resolve_hwnd_phase(
+        hwnd, adopted_existing = _resolve_hwnd_phase(
             proc,
             app_type=app_type,
             title_hint=title_hint,
@@ -407,11 +416,23 @@ def launch_and_register(
         "slot_id": tw.slot_id,
         "bounds": tw.bounds,
         "title": tw.title,
+        "adopted_existing": adopted_existing,
     }
+    # Build up warnings — there can be multiple (prior-tracked race and/or
+    # singleton adoption).  Collect them and join so neither is silently lost.
+    warnings: list[str] = []
     if prior is not None:
-        result["warning"] = (
+        warnings.append(
             f"matched an already-tracked window (prior handle_id={prior.handle_id!r}, "
             f"label={prior.label!r}); existing entry was updated. To avoid this, "
             f"release that handle first or pass tighter identification."
         )
+    if adopted_existing:
+        warnings.append(
+            "Resolved HWND predates the launch: an existing user-owned window was "
+            "adopted. Call release_window before close_window to avoid destroying "
+            "unsaved data."
+        )
+    if warnings:
+        result["warning"] = " | ".join(warnings)
     return result

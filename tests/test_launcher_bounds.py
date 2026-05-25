@@ -57,7 +57,7 @@ def _patch_phases(monkeypatch, *, applied_bounds: Optional[dict]):
     monkeypatch.setattr(
         common_mod,
         "_resolve_hwnd_phase",
-        lambda *a, **kw: _FAKE_HWND,
+        lambda *a, **kw: (_FAKE_HWND, False),
     )
     monkeypatch.setattr(
         common_mod,

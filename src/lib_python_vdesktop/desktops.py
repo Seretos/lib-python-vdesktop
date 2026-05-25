@@ -238,20 +238,60 @@ def unpin_app_impl(handle_id: str) -> dict:
     affects *every* open window of the same application, including those that
     are not managed by this session.  Use ``unpin_window_impl`` for per-window
     unpinning.
+
+    DESTRUCTIVE SIDE-EFFECT — desktop reassignment: when an app-pinned window
+    is unpinned, the OS collapses *all* co-AUMID windows onto the reference
+    window's current virtual desktop.  Any other registered window that was
+    visible on a different desktop before this call may be silently reassigned.
+    The ``collateral_windows`` list in the return value names every registered
+    window whose desktop GUID changed as a result.
     """
     _require()
     tw = REGISTRY.require(handle_id)
+
+    # Best-effort pre-unpin snapshot: record the desktop GUID of every
+    # registered window so we can detect OS-driven reassignment afterwards.
+    # A broad except-guard means COM failures never abort the unpin itself.
+    pre_snap: dict[str, str | None] = {}
+    try:
+        for other in REGISTRY.all():
+            if other.handle_id != handle_id:
+                pre_snap[other.handle_id] = desktop_guid_for_hwnd(other.hwnd)
+    except Exception:  # noqa: BLE001
+        pre_snap = {}
+
     view = pyvda.AppView(hwnd=tw.hwnd)
     already_unpinned = not bool(view.is_app_pinned())
     view.unpin_app()
+
+    # Detect collateral desktop reassignment by comparing GUIDs post-unpin.
+    collateral_windows: list[str] = []
+    if pre_snap:
+        try:
+            for other_handle_id, old_guid in pre_snap.items():
+                try:
+                    other_tw = REGISTRY.get(other_handle_id)
+                    if other_tw is None:
+                        continue
+                    new_guid = desktop_guid_for_hwnd(other_tw.hwnd)
+                    if old_guid is not None and new_guid is not None and old_guid != new_guid:
+                        collateral_windows.append(other_handle_id)
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            collateral_windows = []
+
     return {
         "handle_id": handle_id,
         "app_pinned": bool(view.is_app_pinned()),
         "scope": "app",
         "already_unpinned": already_unpinned,
+        "collateral_windows": collateral_windows,
         "warning": (
             "unpin_app operates on the application's AUMID and affects ALL windows "
-            "of this application, including those not managed by this session."
+            "of this application, including those not managed by this session. "
+            "The OS may reassign co-AUMID windows to the reference window's desktop "
+            "(desktop reassignment side-effect); see collateral_windows for affected handles."
         ),
     }
 

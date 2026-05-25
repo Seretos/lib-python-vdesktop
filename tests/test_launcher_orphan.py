@@ -123,7 +123,7 @@ def test_launch_success_does_not_kill(monkeypatch, isolated_registry):
     monkeypatch.setattr(
         common_mod,
         "_resolve_hwnd_phase",
-        lambda *a, **kw: _FAKE_HWND,
+        lambda *a, **kw: (_FAKE_HWND, False),
     )
     monkeypatch.setattr(
         common_mod,
