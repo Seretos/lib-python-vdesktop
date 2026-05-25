@@ -295,3 +295,164 @@ def test_get_window_impl_missing_raises_key_error(monkeypatch):
 
     with pytest.raises(KeyError):
         windows_mod.get_window_impl("does-not-exist")
+
+
+# ---------------------------------------------------------------------------
+# resize_window_impl: maximized-flag clearing (ticket #14 regression tests)
+# ---------------------------------------------------------------------------
+
+
+def _fake_user32_stateful(
+    *,
+    is_iconic: int = 0,
+    is_zoomed_initial: int = 0,
+) -> tuple[types.SimpleNamespace, list]:
+    """Return (fake_user32, show_window_calls).
+
+    show_window_calls records every (hwnd, cmd) pair passed to ShowWindow.
+    IsZoomed returns is_zoomed_initial until SW_SHOWNOACTIVATE (4) is recorded
+    in show_window_calls, then returns 0.  This lets tests verify that the guard
+    in resize_window_impl actually clears the maximized flag before moving.
+    """
+    show_window_calls: list = []
+
+    ns = types.SimpleNamespace()
+    ns.IsIconic = lambda hwnd: is_iconic
+
+    def is_zoomed(hwnd):
+        # Once SW_SHOWNOACTIVATE has been called, report 0.
+        sw_shownoactivate_called = any(cmd == windows_mod.SW_SHOWNOACTIVATE for _, cmd in show_window_calls)
+        return 0 if sw_shownoactivate_called else is_zoomed_initial
+
+    def show_window(hwnd, cmd):
+        show_window_calls.append((hwnd, cmd))
+
+    ns.IsZoomed = is_zoomed
+    ns.ShowWindow = show_window
+    ns.SetWindowPos = lambda *a: None
+    ns.GetWindowRect = lambda hwnd, rect_ptr: None
+    ns.GetWindowTextW = lambda hwnd, buf, size: None
+    ns.SetForegroundWindow = lambda hwnd: None
+    ns.PostMessageW = lambda *a: None
+    return ns, show_window_calls
+
+
+_BOUNDS = {"x": 10, "y": 20, "w": 800, "h": 600}
+
+
+def test_resize_window_impl_clears_maximized_flag(monkeypatch):
+    """Regression (#14): resize_window_impl must call SW_SHOWNOACTIVATE before
+    moving when the window is maximized, so IsZoomed is 0 after the call."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    fake_u32, show_window_calls = _fake_user32_stateful(is_iconic=0, is_zoomed_initial=1)
+    monkeypatch.setattr(windows_mod, "_user32", fake_u32)
+
+    # Stub move_to_bounds to avoid _shadow_margins / _virtual_screen_rect round-trips.
+    monkeypatch.setattr(windows_mod, "move_to_bounds", lambda hwnd, bounds: dict(bounds))
+
+    result = windows_mod.resize_window_impl(tw.handle_id, _BOUNDS)
+
+    # SW_SHOWNOACTIVATE must have been called.
+    assert any(cmd == windows_mod.SW_SHOWNOACTIVATE for _, cmd in show_window_calls), (
+        "resize_window_impl must call ShowWindow(SW_SHOWNOACTIVATE) when window is maximized"
+    )
+
+    # After the call, _window_state must report 'restored' (IsZoomed now 0).
+    assert windows_mod._window_state(tw.hwnd) == "restored"
+
+    # Return shape is unchanged.
+    assert result["handle_id"] == tw.handle_id
+    assert "bounds" in result
+
+
+def test_resize_window_impl_already_restored_no_show_window_call(monkeypatch):
+    """When the window is already restored (IsZoomed=0), ShowWindow must NOT be called."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    fake_u32, show_window_calls = _fake_user32_stateful(is_iconic=0, is_zoomed_initial=0)
+    monkeypatch.setattr(windows_mod, "_user32", fake_u32)
+    monkeypatch.setattr(windows_mod, "move_to_bounds", lambda hwnd, bounds: dict(bounds))
+
+    result = windows_mod.resize_window_impl(tw.handle_id, _BOUNDS)
+
+    assert show_window_calls == [], (
+        "resize_window_impl must not call ShowWindow when window is already restored"
+    )
+    assert result["handle_id"] == tw.handle_id
+    assert "bounds" in result
+
+
+def test_resize_window_impl_minimized_no_show_window_call(monkeypatch):
+    """When IsIconic=1 (minimized, not maximized), resize_window_impl must NOT
+    call ShowWindow — restoring a minimized window may re-maximize it."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    # IsIconic=1, IsZoomed=0 → _window_state returns "minimized"
+    fake_u32, show_window_calls = _fake_user32_stateful(is_iconic=1, is_zoomed_initial=0)
+    monkeypatch.setattr(windows_mod, "_user32", fake_u32)
+    monkeypatch.setattr(windows_mod, "move_to_bounds", lambda hwnd, bounds: dict(bounds))
+
+    windows_mod.resize_window_impl(tw.handle_id, _BOUNDS)
+
+    assert show_window_calls == [], (
+        "resize_window_impl must not call ShowWindow when window is minimized"
+    )
+
+
+def test_resize_window_impl_invalid_bounds_on_maximized_no_show_window(monkeypatch):
+    """Regression (#14 fix): when bounds are invalid (w=0), resize_window_impl must
+    raise ValueError WITHOUT calling ShowWindow — the window must remain maximized
+    and the operation must be fully side-effect free."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    fake_u32, show_window_calls = _fake_user32_stateful(is_iconic=0, is_zoomed_initial=1)
+    monkeypatch.setattr(windows_mod, "_user32", fake_u32)
+    monkeypatch.setattr(windows_mod, "move_to_bounds", lambda hwnd, bounds: dict(bounds))
+
+    invalid_bounds = {"x": 10, "y": 20, "w": 0, "h": 600}
+
+    with pytest.raises(ValueError):
+        windows_mod.resize_window_impl(tw.handle_id, invalid_bounds)
+
+    # ShowWindow must NOT have been called — the window stays maximized.
+    assert show_window_calls == [], (
+        "resize_window_impl must not call ShowWindow when bounds are invalid; "
+        "the window must remain maximized"
+    )
+
+
+def test_resize_window_impl_returns_correct_bounds_when_maximized(monkeypatch):
+    """When the window was maximized, the returned bounds must match the input
+    bounds (move_to_bounds ran after SW_RESTORE with the correct values)."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    fake_u32, show_window_calls = _fake_user32_stateful(is_iconic=0, is_zoomed_initial=1)
+    monkeypatch.setattr(windows_mod, "_user32", fake_u32)
+
+    received_bounds: list = []
+
+    def capturing_move_to_bounds(hwnd, bounds):
+        received_bounds.append(dict(bounds))
+        return dict(bounds)
+
+    monkeypatch.setattr(windows_mod, "move_to_bounds", capturing_move_to_bounds)
+
+    result = windows_mod.resize_window_impl(tw.handle_id, _BOUNDS)
+
+    # move_to_bounds must have been called with our exact input bounds.
+    assert len(received_bounds) == 1
+    assert received_bounds[0] == _BOUNDS
+
+    # Returned bounds must match.
+    assert result["bounds"] == _BOUNDS

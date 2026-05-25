@@ -33,6 +33,7 @@ SW_RESTORE = 9
 SW_MINIMIZE = 6
 SW_MAXIMIZE = 3
 SW_SHOWNORMAL = 1
+SW_SHOWNOACTIVATE = 4
 
 # Minimum number of pixels of the visible window frame that must remain
 # inside the virtual screen after a move.  Prevents windows from being
@@ -265,6 +266,13 @@ def move_window_impl(handle_id: str, target: dict) -> dict:
 
 def resize_window_impl(handle_id: str, bounds: dict) -> dict:
     tw = REGISTRY.require(handle_id)
+    bw, bh = int(bounds.get("w", 0)), int(bounds.get("h", 0))
+    if bw <= 0 or bh <= 0:
+        raise ValueError(
+            f"move_to_bounds: width and height must be positive, got w={bw}, h={bh}"
+        )
+    if _window_state(tw.hwnd) == "maximized":
+        _user32.ShowWindow(tw.hwnd, SW_SHOWNOACTIVATE)
     applied = move_to_bounds(tw.hwnd, bounds)
     REGISTRY.update_bounds(handle_id, applied)
     return {"handle_id": handle_id, "bounds": applied}
@@ -314,6 +322,13 @@ def maximize_window_impl(handle_id: str) -> dict:
 
 
 def restore_window_impl(handle_id: str) -> dict:
+    """Restore a window via SW_RESTORE.
+
+    Note: SW_RESTORE on a minimized window returns it to its prior placement,
+    which may still be maximized if the window was maximized before being
+    minimized.  In that case the returned 'state' will be 'maximized', not
+    'restored'.
+    """
     tw = REGISTRY.require(handle_id)
     _user32.ShowWindow(tw.hwnd, SW_RESTORE)
     return {"handle_id": handle_id, "state": _window_state(tw.hwnd)}
