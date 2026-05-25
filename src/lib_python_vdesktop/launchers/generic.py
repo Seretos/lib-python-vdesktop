@@ -51,5 +51,5 @@ def launch_app_impl(
         title_hint=title_hint,
         class_filter=class_filter,
         resolve_timeout_ms=timeout,
-        pre_spawn_snapshot=bool(class_filter),
+        pre_spawn_snapshot=True,
     )

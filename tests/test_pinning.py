@@ -307,3 +307,104 @@ def test_unpin_app_preserves_existing_keys(fake_pyvda):
     assert "scope" in result
     assert "warning" in result
     assert result["scope"] == "app"
+
+
+# ===========================================================================
+# V1 / #16: collateral_windows + desktop-reassignment warning (new)
+# ===========================================================================
+
+
+_FAKE_HWND_2 = 54321
+_FAKE_PID_2 = 888
+
+
+def _make_two_window_registry():
+    """Return a Registry with two windows registered (HWNDs _FAKE_HWND and _FAKE_HWND_2)."""
+    r = Registry()
+    tw1 = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test_app")
+    tw2 = r.register(hwnd=_FAKE_HWND_2, pid=_FAKE_PID_2, app_type="test_app2")
+    return r, tw1, tw2
+
+
+@pytest.mark.parametrize("fake_pyvda", [{"is_pinned": True, "is_app_pinned": True}], indirect=True)
+def test_unpin_app_collateral_windows_detected(fake_pyvda, monkeypatch):
+    """Two registered windows: after unpin, the collateral window's desktop GUID
+    changes from 'B' to 'A' — it must appear in collateral_windows."""
+    _stub, tw1 = fake_pyvda
+    # Register a second window in the same isolated registry.
+    r = desktops_mod.REGISTRY
+    tw2 = r.register(hwnd=_FAKE_HWND_2, pid=_FAKE_PID_2, app_type="test_app2")
+
+    call_count = [0]
+
+    def fake_desktop_guid(hwnd):
+        call_count[0] += 1
+        # First call cycle (pre-snap): tw2 is on 'B'
+        # Second call cycle (post-snap): tw2 is on 'A' (OS collapsed it)
+        # We distinguish via call_count parity.
+        if call_count[0] <= 1:
+            # pre-snap: collateral window (tw2) is on 'B'
+            return "B"
+        else:
+            # post-snap: collateral window (tw2) has moved to 'A'
+            return "A"
+
+    monkeypatch.setattr(desktops_mod, "desktop_guid_for_hwnd", fake_desktop_guid)
+
+    result = desktops_mod.unpin_app_impl(_handle(tw1))
+    assert "collateral_windows" in result, "result must contain 'collateral_windows'"
+    assert tw2.handle_id in result["collateral_windows"], (
+        "collateral window must appear in collateral_windows when its desktop changed"
+    )
+
+
+@pytest.mark.parametrize("fake_pyvda", [{"is_pinned": True, "is_app_pinned": True}], indirect=True)
+def test_unpin_app_no_collateral_when_solo(fake_pyvda, monkeypatch):
+    """Single registered window: collateral_windows must be present and empty."""
+    _stub, tw = fake_pyvda
+    # Only one window in the registry — no other windows to detect collateral on.
+    monkeypatch.setattr(desktops_mod, "desktop_guid_for_hwnd", lambda hwnd: "A")
+
+    result = desktops_mod.unpin_app_impl(_handle(tw))
+    assert "collateral_windows" in result, "result must always contain 'collateral_windows'"
+    assert result["collateral_windows"] == [], (
+        "collateral_windows must be empty when only one window is registered"
+    )
+
+
+@pytest.mark.parametrize("fake_pyvda", [{"is_pinned": True, "is_app_pinned": True}], indirect=True)
+def test_unpin_app_collateral_windows_key_always_present(fake_pyvda, monkeypatch):
+    """Even when desktop_guid_for_hwnd raises, collateral_windows is present (empty)
+    and unpin still succeeds (no exception propagates)."""
+    _stub, tw = fake_pyvda
+
+    def exploding_guid(hwnd):
+        raise RuntimeError("COM surface unavailable")
+
+    monkeypatch.setattr(desktops_mod, "desktop_guid_for_hwnd", exploding_guid)
+
+    result = desktops_mod.unpin_app_impl(_handle(tw))
+    assert "collateral_windows" in result, (
+        "collateral_windows key must be present even when desktop_guid_for_hwnd raises"
+    )
+    assert result["collateral_windows"] == [], (
+        "collateral_windows must be empty when snapshot fails"
+    )
+    assert result["handle_id"] == _handle(tw), "unpin must still succeed when snapshot errors"
+
+
+@pytest.mark.parametrize("fake_pyvda", [{"is_pinned": True, "is_app_pinned": True}], indirect=True)
+def test_unpin_app_warning_mentions_desktop_relocation(fake_pyvda, monkeypatch):
+    """The warning string must mention both 'desktop' and 'reassign' to make the
+    destructive side-effect explicit to callers."""
+    _stub, tw = fake_pyvda
+    monkeypatch.setattr(desktops_mod, "desktop_guid_for_hwnd", lambda hwnd: "A")
+
+    result = desktops_mod.unpin_app_impl(_handle(tw))
+    warning = result.get("warning", "")
+    assert "desktop" in warning.lower(), (
+        f"warning must mention 'desktop' but got: {warning!r}"
+    )
+    assert "reassign" in warning.lower(), (
+        f"warning must mention 'reassign' but got: {warning!r}"
+    )
