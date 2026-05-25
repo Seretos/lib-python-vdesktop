@@ -108,6 +108,8 @@ def test_list_windows_has_state_key(monkeypatch, isolated_registry):
     # Fake _user32 — restored window.
     monkeypatch.setattr(windows_mod, "_user32", _fake_user32(is_iconic=0, is_zoomed=0))
 
+    # Force fallback path: _get_extended_frame returns None so _get_window_rect is used.
+    monkeypatch.setattr(windows_mod, "_get_extended_frame", lambda hwnd: None)
     # Fake _get_window_rect to return a predictable rect.
     monkeypatch.setattr(windows_mod, "_get_window_rect", lambda hwnd: _make_rect())
 
@@ -130,6 +132,7 @@ def test_list_windows_state_value_restored(monkeypatch, isolated_registry):
     isolated_registry.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
 
     monkeypatch.setattr(windows_mod, "_user32", _fake_user32(is_iconic=0, is_zoomed=0))
+    monkeypatch.setattr(windows_mod, "_get_extended_frame", lambda hwnd: None)
     monkeypatch.setattr(windows_mod, "_get_window_rect", lambda hwnd: _make_rect())
     monkeypatch.setattr(windows_mod, "get_window_title", lambda hwnd: "T")
     monkeypatch.setattr(desktops_mod, "pyvda", None)
@@ -145,6 +148,7 @@ def test_list_windows_state_value_minimized(monkeypatch, isolated_registry):
     isolated_registry.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
 
     monkeypatch.setattr(windows_mod, "_user32", _fake_user32(is_iconic=1, is_zoomed=0))
+    monkeypatch.setattr(windows_mod, "_get_extended_frame", lambda hwnd: None)
     monkeypatch.setattr(windows_mod, "_get_window_rect", lambda hwnd: _make_rect())
     monkeypatch.setattr(windows_mod, "get_window_title", lambda hwnd: "T")
     monkeypatch.setattr(desktops_mod, "pyvda", None)
@@ -154,12 +158,18 @@ def test_list_windows_state_value_minimized(monkeypatch, isolated_registry):
 
 
 def test_list_windows_state_fallback_none_on_oserror(monkeypatch, isolated_registry):
-    """When _get_window_rect raises OSError, 'state' must be None (graceful fallback)."""
+    """When _get_window_rect raises OSError, 'state' must be None (graceful fallback).
+
+    _get_extended_frame returns None (forcing the fallback to _get_window_rect), which
+    then raises OSError — confirming the outer except OSError catches it.
+    """
     import lib_python_vdesktop.desktops as desktops_mod
 
     isolated_registry.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
 
-    # _get_window_rect raises — state must fall back to None.
+    # _get_extended_frame returns None → fallback; _get_window_rect raises OSError.
+    monkeypatch.setattr(windows_mod, "_get_extended_frame", lambda hwnd: None)
+
     def bad_rect(hwnd):
         raise OSError("no such window")
 
@@ -456,3 +466,98 @@ def test_resize_window_impl_returns_correct_bounds_when_maximized(monkeypatch):
 
     # Returned bounds must match.
     assert result["bounds"] == _BOUNDS
+
+
+# ---------------------------------------------------------------------------
+# Ticket #17: list_windows_impl reports DWMWA_EXTENDED_FRAME_BOUNDS (regression)
+# ---------------------------------------------------------------------------
+
+
+def test_list_windows_reports_extended_frame_bounds_when_available(
+    monkeypatch, isolated_registry
+):
+    """Regression (#17): list_windows_impl must use _get_extended_frame when it
+    returns a non-None rect, not the shadow-inflated GetWindowRect value."""
+    import lib_python_vdesktop.desktops as desktops_mod
+
+    isolated_registry.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+
+    monkeypatch.setattr(windows_mod, "_user32", _fake_user32(is_iconic=0, is_zoomed=0))
+
+    # Extended frame: visible bounds (no shadow).
+    monkeypatch.setattr(
+        windows_mod, "_get_extended_frame", lambda hwnd: _make_rect(0, 0, 1280, 1080)
+    )
+    # OS rect: shadow-inflated (-7 px per edge).
+    monkeypatch.setattr(
+        windows_mod, "_get_window_rect", lambda hwnd: _make_rect(-7, -7, 1287, 1087)
+    )
+    monkeypatch.setattr(windows_mod, "get_window_title", lambda hwnd: "T")
+    monkeypatch.setattr(desktops_mod, "pyvda", None)
+
+    result = windows_mod.list_windows_impl()
+    assert len(result) == 1
+    assert result[0]["bounds"] == {"x": 0, "y": 0, "w": 1280, "h": 1080}, (
+        "list_windows_impl must report extended-frame bounds (visible), not the "
+        "shadow-inflated GetWindowRect value"
+    )
+
+
+def test_list_windows_falls_back_to_window_rect_when_extended_frame_unavailable(
+    monkeypatch, isolated_registry
+):
+    """When _get_extended_frame returns None (DWM unavailable), bounds must come
+    from _get_window_rect."""
+    import lib_python_vdesktop.desktops as desktops_mod
+
+    isolated_registry.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+
+    monkeypatch.setattr(windows_mod, "_user32", _fake_user32(is_iconic=0, is_zoomed=0))
+
+    # DWM unavailable — extended frame returns None.
+    monkeypatch.setattr(windows_mod, "_get_extended_frame", lambda hwnd: None)
+    # OS rect is the only source.
+    monkeypatch.setattr(
+        windows_mod, "_get_window_rect", lambda hwnd: _make_rect(-7, -7, 1287, 1087)
+    )
+    monkeypatch.setattr(windows_mod, "get_window_title", lambda hwnd: "T")
+    monkeypatch.setattr(desktops_mod, "pyvda", None)
+
+    result = windows_mod.list_windows_impl()
+    assert len(result) == 1
+    assert result[0]["bounds"] == {"x": -7, "y": -7, "w": 1294, "h": 1094}, (
+        "list_windows_impl must fall back to _get_window_rect when "
+        "_get_extended_frame returns None"
+    )
+
+
+def test_list_windows_falls_back_to_registry_bounds_when_extended_frame_raises(
+    monkeypatch, isolated_registry
+):
+    """When _get_extended_frame raises OSError, the outer except OSError must catch it
+    and return tw.bounds (registry-stored value), with state None."""
+    import lib_python_vdesktop.desktops as desktops_mod
+
+    tw = isolated_registry.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    # Store a known bounds value in the registry so we can assert it is returned.
+    isolated_registry.update_bounds(tw.handle_id, {"x": 10, "y": 20, "w": 800, "h": 600})
+
+    monkeypatch.setattr(windows_mod, "_user32", _fake_user32(is_iconic=0, is_zoomed=0))
+
+    def raising_extended_frame(hwnd):
+        raise OSError("DWM not available")
+
+    monkeypatch.setattr(windows_mod, "_get_extended_frame", raising_extended_frame)
+    monkeypatch.setattr(windows_mod, "get_window_title", lambda hwnd: "T")
+    monkeypatch.setattr(desktops_mod, "pyvda", None)
+
+    result = windows_mod.list_windows_impl()
+    assert len(result) == 1
+    entry = result[0]
+    assert entry["bounds"] == {"x": 10, "y": 20, "w": 800, "h": 600}, (
+        "list_windows_impl must return registry-stored bounds when _get_extended_frame "
+        "raises OSError"
+    )
+    assert entry["state"] is None, (
+        "state must be None when the Win32 call raises OSError"
+    )

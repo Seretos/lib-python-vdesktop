@@ -206,13 +206,22 @@ def list_windows_impl(
         if desktop_guid and tw.desktop_guid and tw.desktop_guid != desktop_guid:
             continue
         try:
-            rect = _get_window_rect(tw.hwnd)
-            bounds = {
-                "x": rect.left,
-                "y": rect.top,
-                "w": rect.right - rect.left,
-                "h": rect.bottom - rect.top,
-            }
+            ext = _get_extended_frame(tw.hwnd)
+            if ext is not None:
+                bounds = {
+                    "x": ext.left,
+                    "y": ext.top,
+                    "w": ext.right - ext.left,
+                    "h": ext.bottom - ext.top,
+                }
+            else:
+                rect = _get_window_rect(tw.hwnd)
+                bounds = {
+                    "x": rect.left,
+                    "y": rect.top,
+                    "w": rect.right - rect.left,
+                    "h": rect.bottom - rect.top,
+                }
             state: Optional[str] = _window_state(tw.hwnd)
         except OSError as exc:
             log.debug("list_windows: GetWindowRect(%s) failed: %s", tw.hwnd, exc)
