@@ -75,14 +75,31 @@ def resolve_desktop(target: Optional[DesktopRef]):
         return desktops[target]
     if isinstance(target, str):
         stripped = target.strip()
+        # Quote-stripping is applied only for GUID comparisons — name lookups
+        # must match the literal (whitespace-stripped) value so that desktops
+        # whose names actually begin/end with quote characters are reachable.
+        guid_candidate = stripped.strip('"\'')
         if stripped.lstrip("-").isdigit():
             idx = int(stripped)
             if not (0 <= idx < len(desktops)):
                 raise ValueError(f"Desktop index {idx} out of range (have {len(desktops)})")
             return desktops[idx]
+        # First pass: prefer desktops whose explicit .name matches (exact match
+        # on the whitespace-stripped value, no quote removal).  This ensures
+        # that an explicitly-named desktop always wins over a synthesised
+        # "Desktop N" fallback that happens to share the same string.
         for d in desktops:
-            if getattr(d, "name", None) == stripped or str(d.id) == stripped:
+            explicit_name = getattr(d, "name", None)
+            if explicit_name and explicit_name == stripped:
                 return d
+            if str(d.id) == guid_candidate:
+                return d
+        # Second pass: synthesised fallback names ("Desktop N") for desktops
+        # that have no explicit name.
+        for i, d in enumerate(desktops):
+            if not getattr(d, "name", None):
+                if f"Desktop {i + 1}" == stripped:
+                    return d
     raise ValueError(f"Unknown desktop reference: {target!r}")
 
 
@@ -111,6 +128,16 @@ def get_current_desktop_impl() -> dict:
 
 def create_desktop_impl(name: Optional[str] = None) -> dict:
     _require()
+    if name:
+        name_stripped = name.strip()
+        if name_stripped:
+            existing = pyvda.get_virtual_desktops()
+            for i, d in enumerate(existing):
+                effective_name = getattr(d, "name", None) or f"Desktop {i + 1}"
+                if effective_name == name_stripped:
+                    raise ValueError(
+                        f"desktop.name-already-exists: name {name_stripped!r} is already used by desktop at index {i}"
+                    )
     new_desktop = pyvda.VirtualDesktop.create()
     if name:
         _rename(new_desktop, name)
