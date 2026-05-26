@@ -561,3 +561,114 @@ def test_list_windows_falls_back_to_registry_bounds_when_extended_frame_raises(
     assert entry["state"] is None, (
         "state must be None when the Win32 call raises OSError"
     )
+
+
+# ---------------------------------------------------------------------------
+# Ticket #21: move_to_bounds returns OS-reported actual bounds, not requested
+# ---------------------------------------------------------------------------
+
+
+def test_move_to_bounds_returns_extended_frame_bounds_not_requested(monkeypatch):
+    """Regression (#21): move_to_bounds must return the DWM extended-frame bounds
+    reported by the OS after SetWindowPos, NOT the clamped-requested bounds.
+
+    The caller requests {x:100,y:100,w:800,h:500} but DWM adjusts the window
+    so the extended frame is left=93, top=100, right=907, bottom=507.
+    The return value must reflect the DWM-adjusted rect.
+    """
+    ns = types.SimpleNamespace()
+    ns.SetWindowPos = lambda *a: None
+    ns.IsIconic = lambda hwnd: 0
+    ns.IsZoomed = lambda hwnd: 0
+    ns.ShowWindow = lambda hwnd, cmd: None
+    ns.GetWindowRect = lambda hwnd, rect_ptr: None
+
+    monkeypatch.setattr(windows_mod, "_user32", ns)
+    monkeypatch.setattr(windows_mod, "_shadow_margins", lambda hwnd: (0, 0, 0, 0))
+    monkeypatch.setattr(windows_mod, "_virtual_screen_rect",
+                        lambda: {"x": 0, "y": 0, "w": 1920, "h": 1080})
+    # DWM returns adjusted bounds (slightly different from requested).
+    monkeypatch.setattr(
+        windows_mod,
+        "_get_extended_frame",
+        lambda hwnd: _make_rect(left=93, top=100, right=907, bottom=507),
+    )
+
+    result = windows_mod.move_to_bounds(
+        _FAKE_HWND, {"x": 100, "y": 100, "w": 800, "h": 500}
+    )
+
+    # Must reflect the DWM-adjusted extended frame, not the requested values.
+    assert result == {"x": 93, "y": 100, "w": 814, "h": 407}, (
+        "move_to_bounds must return OS-reported extended-frame bounds, not the "
+        "requested (clamped) bounds"
+    )
+
+
+def test_move_to_bounds_falls_back_to_window_rect_when_extended_frame_none(monkeypatch):
+    """When _get_extended_frame returns None, move_to_bounds must fall back to
+    _get_window_rect and return bounds derived from that rect."""
+    ns = types.SimpleNamespace()
+    ns.SetWindowPos = lambda *a: None
+    ns.IsIconic = lambda hwnd: 0
+    ns.IsZoomed = lambda hwnd: 0
+    ns.ShowWindow = lambda hwnd, cmd: None
+    ns.GetWindowRect = lambda hwnd, rect_ptr: None
+
+    monkeypatch.setattr(windows_mod, "_user32", ns)
+    monkeypatch.setattr(windows_mod, "_shadow_margins", lambda hwnd: (0, 0, 0, 0))
+    monkeypatch.setattr(windows_mod, "_virtual_screen_rect",
+                        lambda: {"x": 0, "y": 0, "w": 1920, "h": 1080})
+    # DWM unavailable — extended frame returns None.
+    monkeypatch.setattr(windows_mod, "_get_extended_frame", lambda hwnd: None)
+    # _get_window_rect returns a known rect.
+    monkeypatch.setattr(
+        windows_mod,
+        "_get_window_rect",
+        lambda hwnd: _make_rect(left=90, top=95, right=910, bottom=610),
+    )
+
+    result = windows_mod.move_to_bounds(
+        _FAKE_HWND, {"x": 100, "y": 100, "w": 800, "h": 500}
+    )
+
+    # Must reflect the _get_window_rect values (fallback path).
+    assert result == {"x": 90, "y": 95, "w": 820, "h": 515}, (
+        "move_to_bounds must fall back to _get_window_rect bounds when "
+        "_get_extended_frame returns None"
+    )
+
+
+def test_move_to_bounds_falls_back_to_requested_when_read_back_is_zero(monkeypatch):
+    """Regression (#21 guard): if both read-backs return a zero-sized rect (window
+    disappeared between SetWindowPos and the read-back), move_to_bounds must return
+    the clamped-requested bounds rather than persisting a zero-rect to the registry."""
+    ns = types.SimpleNamespace()
+    ns.SetWindowPos = lambda *a: None
+    ns.IsIconic = lambda hwnd: 0
+    ns.IsZoomed = lambda hwnd: 0
+    ns.ShowWindow = lambda hwnd, cmd: None
+    ns.GetWindowRect = lambda hwnd, rect_ptr: None
+
+    monkeypatch.setattr(windows_mod, "_user32", ns)
+    monkeypatch.setattr(windows_mod, "_shadow_margins", lambda hwnd: (0, 0, 0, 0))
+    monkeypatch.setattr(windows_mod, "_virtual_screen_rect",
+                        lambda: {"x": 0, "y": 0, "w": 1920, "h": 1080})
+    # Extended frame unavailable.
+    monkeypatch.setattr(windows_mod, "_get_extended_frame", lambda hwnd: None)
+    # _get_window_rect returns a zero-sized rect (window briefly invalid).
+    monkeypatch.setattr(
+        windows_mod,
+        "_get_window_rect",
+        lambda hwnd: _make_rect(left=0, top=0, right=0, bottom=0),
+    )
+
+    result = windows_mod.move_to_bounds(
+        _FAKE_HWND, {"x": 100, "y": 100, "w": 800, "h": 500}
+    )
+
+    # Must fall back to the clamped-requested bounds, not the zero-rect.
+    assert result == {"x": 100, "y": 100, "w": 800, "h": 500}, (
+        "move_to_bounds must return clamped-requested bounds when the read-back "
+        "yields a zero-sized rect (window briefly disappeared after SetWindowPos)"
+    )

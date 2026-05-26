@@ -87,6 +87,16 @@ def adopt_window_impl(
     label: Optional[str] = None,
     app_type_hint: Optional[str] = None,
 ) -> dict:
+    """Adopt an existing top-level window into the tracking registry.
+
+    Note on ``pid``: the returned ``pid`` is the owner of the HWND at adopt
+    time as reported by GetWindowThreadProcessId.  For Windows Terminal
+    (``wt.exe``), the host process re-parents the conhost/window handle to a
+    long-lived ``WindowsTerminal.exe`` process, so the ``pid`` here will differ
+    from the ``pid`` recorded by ``launch_terminal_impl`` (which captures the
+    short-lived ``wt.exe`` stub PID).  This is expected Windows Terminal
+    behaviour and is not a bug in this library.
+    """
     if not is_window(int(hwnd)):
         raise ValueError(f"hwnd {hwnd!r} does not correspond to an existing window")
     existing = REGISTRY.find_by_hwnd(int(hwnd))
