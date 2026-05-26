@@ -94,8 +94,13 @@ def _shadow_margins(hwnd: int) -> tuple[int, int, int, int]:
 
 def move_to_bounds(hwnd: int, bounds: dict) -> dict:
     """Move/resize a window so its **visible** frame matches `bounds` exactly,
-    compensating for DWM drop-shadow margins. Returns the bounds actually
-    applied (visible).
+    compensating for DWM drop-shadow margins.
+
+    Returns the OS-reported actual visible bounds after the move, mirroring the
+    read-back that `list_windows_impl` performs: DWMWA_EXTENDED_FRAME_BOUNDS
+    when available, falling back to GetWindowRect.  The returned values therefore
+    match what `list_windows` reports immediately after the call — they are NOT
+    the clamped-requested bounds.
 
     F13: Before calling SetWindowPos, the target visible position is clamped so
     that at least _MIN_VISIBLE (32) pixels of the visible frame remain within the
@@ -135,6 +140,23 @@ def move_to_bounds(hwnd: int, bounds: dict) -> dict:
     h = bh + sy + sb
     flags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW
     _user32.SetWindowPos(hwnd, 0, x, y, w, h, flags)
+    # Read back the actual OS-reported visible bounds so the return value matches
+    # what list_windows_impl reports (DWM may adjust the placement).
+    # Guard against a zero-rect being returned when the window disappears between
+    # SetWindowPos and the read-back (closing, reparenting, briefly invalid).
+    ext = _get_extended_frame(hwnd)
+    if ext is not None:
+        ew, eh = ext.right - ext.left, ext.bottom - ext.top
+        if ew > 0 and eh > 0:
+            return {"x": ext.left, "y": ext.top, "w": ew, "h": eh}
+    try:
+        rect = _get_window_rect(hwnd)
+        rw, rh = rect.right - rect.left, rect.bottom - rect.top
+        if rw > 0 and rh > 0:
+            return {"x": rect.left, "y": rect.top, "w": rw, "h": rh}
+    except OSError:
+        pass
+    # Fallback: clamped-requested bounds (pre-patch behaviour for invalid reads).
     return {"x": bx, "y": by, "w": bw, "h": bh}
 
 
