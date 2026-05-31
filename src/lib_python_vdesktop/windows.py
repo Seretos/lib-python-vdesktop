@@ -211,6 +211,11 @@ def _resolve_target(handle_id: str, target: dict) -> tuple[Optional[dict], Optio
         bounds = slot["bounds"]
     if "desktop" in target:
         desktop_ref = target["desktop"]
+    if bounds is None and desktop_ref is None:
+        raise ValueError(
+            f"move target must contain at least one of 'bounds', 'slot', or 'desktop'; "
+            f"got {list(target.keys())!r}"
+        )
     return bounds, desktop_ref
 
 
@@ -287,6 +292,13 @@ def move_window_impl(handle_id: str, target: dict) -> dict:
         tw.desktop_guid = new_guid
 
     if bounds is not None:
+        bw, bh = int(bounds.get("w", 0)), int(bounds.get("h", 0))
+        if bw <= 0 or bh <= 0:
+            raise ValueError(
+                f"move_to_bounds: width and height must be positive, got w={bw}, h={bh}"
+            )
+        if _window_state(tw.hwnd) == "maximized":
+            _user32.ShowWindow(tw.hwnd, SW_SHOWNOACTIVATE)
         applied = move_to_bounds(tw.hwnd, bounds)
         slot_id = target.get("slot") if "slot" in target else tw.slot_id
         REGISTRY.update_bounds(handle_id, applied, slot_id=slot_id)

@@ -270,8 +270,10 @@ def unpin_app_impl(handle_id: str) -> dict:
     is unpinned, the OS collapses *all* co-AUMID windows onto the reference
     window's current virtual desktop.  Any other registered window that was
     visible on a different desktop before this call may be silently reassigned.
-    The ``collateral_windows`` list in the return value names every registered
-    window whose desktop GUID changed as a result.
+    The ``collateral_windows`` list in the return value names every **tracked**
+    handle ID (i.e. windows present in the registry) whose desktop GUID changed
+    as a result.  Untracked co-AUMID windows may also be reassigned by the OS
+    but are not enumerated here.
     """
     _require()
     tw = REGISTRY.require(handle_id)
