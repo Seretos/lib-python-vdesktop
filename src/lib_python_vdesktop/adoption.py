@@ -9,6 +9,7 @@ from typing import Optional
 
 from . import desktops as desktops_mod
 from ._win32_helpers import (
+    get_console_window,
     get_window_classname,
     get_window_pid,
     get_window_rect,
@@ -99,10 +100,11 @@ def adopt_window_impl(
     """
     if not is_window(int(hwnd)):
         raise ValueError(f"hwnd {hwnd!r} does not correspond to an existing window")
+    console_hwnd = get_console_window()
+    if console_hwnd is not None and console_hwnd == int(hwnd):
+        raise ValueError(f"cannot adopt the host console window (hwnd {hwnd!r})")
     existing = REGISTRY.find_by_hwnd(int(hwnd))
     if existing is not None:
-        if label:
-            REGISTRY.relabel(existing.handle_id, label)
         return {"handle_id": existing.handle_id, "already_tracked": True}
 
     title = get_window_title(int(hwnd))

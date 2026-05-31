@@ -10,6 +10,8 @@ import ctypes
 from ctypes import byref, wintypes
 
 _user32 = ctypes.windll.user32
+_kernel32 = ctypes.windll.kernel32
+_kernel32.GetConsoleWindow.restype = ctypes.c_void_p
 
 WINDOW_TEXT_BUFFER_SIZE = 512
 CLASSNAME_BUFFER_SIZE = 256
@@ -46,3 +48,13 @@ def get_window_rect(hwnd: int) -> dict:
 
 def is_window(hwnd: int) -> bool:
     return bool(_user32.IsWindow(hwnd))
+
+
+def get_console_window() -> int | None:
+    """Return the HWND of the console window attached to this process, or None.
+
+    Wraps kernel32.GetConsoleWindow(). Returns None when the process has no
+    console attached (GetConsoleWindow returns 0).
+    """
+    hwnd = _kernel32.GetConsoleWindow()
+    return int(hwnd) if hwnd else None

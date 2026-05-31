@@ -639,6 +639,211 @@ def test_move_to_bounds_falls_back_to_window_rect_when_extended_frame_none(monke
     )
 
 
+# ---------------------------------------------------------------------------
+# Issue 3: move_window_impl SW_RESTORE guard for maximized windows
+# ---------------------------------------------------------------------------
+
+
+def _fake_user32_stateful_sw_restore(
+    *,
+    is_iconic: int = 0,
+    is_zoomed_initial: int = 0,
+) -> tuple[types.SimpleNamespace, list]:
+    """Return (fake_user32, show_window_calls) tracking ShowWindow calls.
+
+    IsZoomed returns is_zoomed_initial until SW_SHOWNOACTIVATE (4) is recorded,
+    then returns 0.  (SW_RESTORE is the old constant; we now expect SW_SHOWNOACTIVATE.)
+    """
+    show_window_calls: list = []
+
+    ns = types.SimpleNamespace()
+    ns.IsIconic = lambda hwnd: is_iconic
+
+    def is_zoomed(hwnd):
+        sw_shownoactivate_called = any(
+            cmd == windows_mod.SW_SHOWNOACTIVATE for _, cmd in show_window_calls
+        )
+        return 0 if sw_shownoactivate_called else is_zoomed_initial
+
+    def show_window(hwnd, cmd):
+        show_window_calls.append((hwnd, cmd))
+
+    ns.IsZoomed = is_zoomed
+    ns.ShowWindow = show_window
+    ns.SetWindowPos = lambda *a: None
+    ns.GetWindowRect = lambda hwnd, rect_ptr: None
+    ns.GetWindowTextW = lambda hwnd, buf, size: None
+    ns.SetForegroundWindow = lambda hwnd: None
+    ns.PostMessageW = lambda *a: None
+    return ns, show_window_calls
+
+
+def test_move_window_impl_clears_maximized_flag(monkeypatch):
+    """Regression (#25 Issue 3): move_window_impl must call SW_SHOWNOACTIVATE (not
+    SW_RESTORE) before calling move_to_bounds when the window is maximized, so that
+    focus is not stolen (no-activate invariant is preserved)."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    fake_u32, show_window_calls = _fake_user32_stateful_sw_restore(
+        is_iconic=0, is_zoomed_initial=1
+    )
+    monkeypatch.setattr(windows_mod, "_user32", fake_u32)
+    monkeypatch.setattr(windows_mod, "move_to_bounds", lambda hwnd, bounds: dict(bounds))
+
+    result = windows_mod.move_window_impl(tw.handle_id, {"bounds": _BOUNDS})
+
+    # SW_SHOWNOACTIVATE must have been called (no focus stealing).
+    assert any(cmd == windows_mod.SW_SHOWNOACTIVATE for _, cmd in show_window_calls), (
+        "move_window_impl must call ShowWindow(SW_SHOWNOACTIVATE) when window is maximized"
+    )
+    # SW_RESTORE must NOT have been called (it steals focus).
+    assert not any(cmd == windows_mod.SW_RESTORE for _, cmd in show_window_calls), (
+        "move_window_impl must NOT call ShowWindow(SW_RESTORE) — use SW_SHOWNOACTIVATE instead"
+    )
+    # After the call, IsZoomed now returns 0 → state is 'restored'.
+    assert windows_mod._window_state(tw.hwnd) == "restored"
+    assert result["handle_id"] == tw.handle_id
+    assert "bounds" in result
+
+
+def test_move_window_impl_restored_no_show_window(monkeypatch):
+    """Already-restored window: ShowWindow must NOT be called by move_window_impl."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    fake_u32, show_window_calls = _fake_user32_stateful_sw_restore(
+        is_iconic=0, is_zoomed_initial=0
+    )
+    monkeypatch.setattr(windows_mod, "_user32", fake_u32)
+    monkeypatch.setattr(windows_mod, "move_to_bounds", lambda hwnd, bounds: dict(bounds))
+
+    windows_mod.move_window_impl(tw.handle_id, {"bounds": _BOUNDS})
+
+    assert show_window_calls == [], (
+        "move_window_impl must not call ShowWindow when window is already restored"
+    )
+
+
+def test_move_window_impl_minimized_no_show_window(monkeypatch):
+    """Minimized window: move_window_impl must NOT call ShowWindow."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    fake_u32, show_window_calls = _fake_user32_stateful_sw_restore(
+        is_iconic=1, is_zoomed_initial=0
+    )
+    monkeypatch.setattr(windows_mod, "_user32", fake_u32)
+    monkeypatch.setattr(windows_mod, "move_to_bounds", lambda hwnd, bounds: dict(bounds))
+
+    windows_mod.move_window_impl(tw.handle_id, {"bounds": _BOUNDS})
+
+    assert show_window_calls == [], (
+        "move_window_impl must not call ShowWindow when window is minimized"
+    )
+
+
+def test_move_window_impl_desktop_only_no_show_window(monkeypatch):
+    """Target with 'desktop' only (no bounds): ShowWindow must NOT be called."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    fake_u32, show_window_calls = _fake_user32_stateful_sw_restore(
+        is_iconic=0, is_zoomed_initial=1
+    )
+    monkeypatch.setattr(windows_mod, "_user32", fake_u32)
+
+    # Stub move_hwnd_to_desktop so no real COM call is made.
+    import lib_python_vdesktop.desktops as desktops_mod
+    monkeypatch.setattr(desktops_mod, "move_hwnd_to_desktop", lambda hwnd, ref: "new-guid")
+
+    windows_mod.move_window_impl(tw.handle_id, {"desktop": "test-1"})
+
+    assert show_window_calls == [], (
+        "move_window_impl must not call ShowWindow when target has no bounds"
+    )
+
+
+def test_move_window_impl_invalid_bounds_on_maximized_no_show_window(monkeypatch):
+    """Regression (#25 review): when bounds are invalid (w=0), move_window_impl must
+    raise ValueError WITHOUT calling ShowWindow — the maximized window must remain
+    maximized and the operation must be fully side-effect free."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+
+    fake_u32, show_window_calls = _fake_user32_stateful_sw_restore(
+        is_iconic=0, is_zoomed_initial=1
+    )
+    monkeypatch.setattr(windows_mod, "_user32", fake_u32)
+    monkeypatch.setattr(windows_mod, "move_to_bounds", lambda hwnd, bounds: dict(bounds))
+
+    invalid_bounds = {"x": 10, "y": 20, "w": 0, "h": 600}
+
+    with pytest.raises(ValueError):
+        windows_mod.move_window_impl(tw.handle_id, {"bounds": invalid_bounds})
+
+    # ShowWindow must NOT have been called — the window stays maximized.
+    assert show_window_calls == [], (
+        "move_window_impl must not call ShowWindow when bounds are invalid; "
+        "the window must remain maximized"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue 4: _resolve_target rejects empty / unknown-key targets
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_target_empty_dict_raises():
+    """Regression (#25 Issue 4): _resolve_target with {} must raise ValueError."""
+    r = Registry()
+    r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test", label=None)
+    with pytest.raises(ValueError, match="move target must contain"):
+        windows_mod._resolve_target("h1", {})
+
+
+def test_resolve_target_unknown_key_raises():
+    """Regression (#25 Issue 4): _resolve_target with an unrecognised key must raise ValueError."""
+    with pytest.raises(ValueError, match="move target must contain"):
+        windows_mod._resolve_target("h1", {"unknown_key": 1})
+
+
+def test_resolve_target_desktop_only_no_raise(monkeypatch):
+    """Positive (#25 Issue 4): {'desktop': 'test-1'} is a valid single-key target."""
+    bounds, desktop_ref = windows_mod._resolve_target("h1", {"desktop": "test-1"})
+    assert bounds is None
+    assert desktop_ref == "test-1"
+
+
+def test_resolve_target_bounds_only_no_raise():
+    """Positive (#25 Issue 4): {'bounds': {...}} is a valid single-key target."""
+    bounds, desktop_ref = windows_mod._resolve_target(
+        "h1", {"bounds": {"x": 0, "y": 0, "w": 800, "h": 600}}
+    )
+    assert bounds == {"x": 0, "y": 0, "w": 800, "h": 600}
+    assert desktop_ref is None
+
+
+def test_resolve_target_slot_only_no_raise(monkeypatch):
+    """Positive (#25 Issue 4): {'slot': 'left'} with a registry entry must not raise."""
+    r = Registry()
+    tw = r.register(hwnd=_FAKE_HWND, pid=_FAKE_PID, app_type="test")
+    monkeypatch.setattr(windows_mod, "REGISTRY", r)
+    monkeypatch.setattr(
+        windows_mod,
+        "lookup_slot",
+        lambda slot_id, desktop_guid=None: {"bounds": {"x": 0, "y": 0, "w": 960, "h": 1080}},
+    )
+    bounds, desktop_ref = windows_mod._resolve_target(tw.handle_id, {"slot": "left"})
+    assert bounds == {"x": 0, "y": 0, "w": 960, "h": 1080}
+    assert desktop_ref is None
+
+
 def test_move_to_bounds_falls_back_to_requested_when_read_back_is_zero(monkeypatch):
     """Regression (#21 guard): if both read-backs return a zero-sized rect (window
     disappeared between SetWindowPos and the read-back), move_to_bounds must return
