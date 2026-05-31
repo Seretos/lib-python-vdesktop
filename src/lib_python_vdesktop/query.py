@@ -10,7 +10,7 @@ from typing import Optional, Union
 
 from . import desktops as desktops_mod
 from ._win32_helpers import get_window_classname, get_window_title
-from ._window_classes import CHROME_WIDGET_CLASS
+from .adoption import _classify
 from .tracking import REGISTRY
 
 log = logging.getLogger("vdesktop.query")
@@ -85,9 +85,20 @@ def find_chrome_tab_impl(
 
     Returns a list of {handle_id, hwnd, tab_index, tab_title, window_title}.
     ``tab_index = -1`` means the match came from the window title (active-tab
-    fallback) rather than UIA enumeration. Adopts the matching Chrome window
-    into the registry if it wasn't tracked yet.
+    fallback) rather than UIA enumeration.
+
+    ``handle_id`` is ``None`` for Chrome windows that have not been adopted
+    into the registry yet; this function is a pure query and never registers
+    windows itself.  VS Code and Microsoft Edge windows (which also use the
+    ``Chrome_WidgetWin_1`` class) are excluded.
+
+    ``pattern`` must be non-empty.
     """
+    if not pattern:
+        raise ValueError(
+            "pattern: must not be empty; provide a non-empty title substring or regex"
+        )
+
     try:
         import uiautomation as uia  # type: ignore
     except ImportError as exc:
@@ -113,18 +124,9 @@ def find_chrome_tab_impl(
 
     def _record_match(hwnd: int, window_title: str, tab_index: int, tab_title: str) -> None:
         tracked = REGISTRY.find_by_hwnd(hwnd)
-        if tracked is None:
-            desktop_guid = desktops_mod.desktop_guid_for_hwnd(hwnd)
-            tracked = REGISTRY.register(
-                hwnd=hwnd,
-                pid=0,
-                app_type="chrome",
-                desktop_guid=desktop_guid,
-                title=window_title,
-            )
         results.append(
             {
-                "handle_id": tracked.handle_id,
+                "handle_id": tracked.handle_id if tracked else None,
                 "hwnd": hwnd,
                 "tab_index": tab_index,
                 "tab_title": tab_title,
@@ -132,13 +134,10 @@ def find_chrome_tab_impl(
             }
         )
 
-    # F6: Keep the ClassName guard to identify Chrome windows, but drop the
-    # w.Name substring check — Chrome windows in non-English locales or with
-    # custom titles would otherwise be silently excluded.
     chrome_windows = [
         w for w in uia.GetRootControl().GetChildren()
-        if w.ClassName == CHROME_WIDGET_CLASS
-        and (w.Name or "")  # must have a non-empty title (real window, not splash)
+        if (w.Name or "")
+        and _classify(w.ClassName, w.Name or "") == "chrome"
     ]
     log.debug("find_chrome_tab: %d Chrome window(s) visible", len(chrome_windows))
 

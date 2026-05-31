@@ -30,14 +30,16 @@ def _classify(class_name: str, title: str) -> str:
     Both Chrome and Edge use the Chrome_WidgetWin_1 class (Edge is Chromium-
     based). They are distinguished by their title suffix: "- Google Chrome"
     vs. "- Microsoft Edge" (sometimes "Microsoft​ Edge" with a
-    zero-width space, hence the substring check).
+    zero-width space, hence the ZWSP strip before the suffix check).
+    VS Code Insiders windows end with "- Visual Studio Code - Insiders"
+    rather than "- Visual Studio Code", so both suffixes are matched.
     """
     cn = class_name.lower()
     if cn == CHROME_WIDGET_CLASS.lower():
-        t = title.lower()
-        if "microsoft edge" in t.replace("​", ""):
+        t = title.lower().replace("​", "")
+        if t.endswith("microsoft edge"):
             return "edge"
-        if "visual studio code" in t:
+        if t.endswith("visual studio code") or t.endswith("visual studio code - insiders"):
             return "vscode"
         return "chrome"
     if "cascadia" in cn:

@@ -61,6 +61,60 @@ def test_classify_unknown_with_chrome_in_title_only():
     assert _classify("Notepad", "fake Google Chrome") == "unknown"
 
 
+# --- Regression: suffix-anchored classifier (ticket #24) ---------------------
+
+
+def test_classify_chrome_page_about_vscode_is_chrome():
+    """A Chrome window whose *page title* contains 'Visual Studio Code' mid-string
+    must NOT be misclassified as vscode — only a title that ends with the suffix
+    counts. Regression for the unanchored 'in' check bug."""
+    title = "Visual Studio Code - Download - Google Chrome"
+    assert _classify("Chrome_WidgetWin_1", title) == "chrome"
+
+
+def test_classify_chrome_page_about_edge_is_chrome():
+    """A Chrome window whose page title contains 'Microsoft Edge' mid-string
+    must NOT be misclassified as edge."""
+    title = "Microsoft Edge - Browser Download - Google Chrome"
+    assert _classify("Chrome_WidgetWin_1", title) == "chrome"
+
+
+def test_classify_vscode_suffix_still_detected():
+    """A genuine VS Code window (title ends with '- Visual Studio Code') must
+    still be classified as vscode after switching to endswith."""
+    assert _classify("Chrome_WidgetWin_1", "myproj - src/foo.py - Visual Studio Code") == "vscode"
+
+
+def test_classify_edge_suffix_still_detected():
+    """A genuine Edge window (title ends with '- Microsoft Edge') must still
+    be classified as edge after switching to endswith."""
+    assert _classify("Chrome_WidgetWin_1", "GitHub - Microsoft Edge") == "edge"
+
+
+def test_classify_edge_zero_width_space_suffix_still_detected():
+    """Edge's zero-width-space variant in the suffix must still match."""
+    title = "YouTube - Microsoft​ Edge"
+    assert _classify("Chrome_WidgetWin_1", title) == "edge"
+
+
+# --- Regression: VS Code Insiders suffix (ticket #24 follow-up) --------------
+
+
+def test_classify_vscode_insiders():
+    """A VS Code Insiders window (title ends with '- Visual Studio Code - Insiders')
+    must be classified as vscode, not chrome. Regression for the missing Insiders
+    suffix in the endswith check."""
+    assert _classify("Chrome_WidgetWin_1", "myproj - Visual Studio Code - Insiders") == "vscode"
+
+
+def test_classify_chrome_page_about_vscode_insiders_is_chrome():
+    """A Chrome window whose page title contains 'Visual Studio Code - Insiders'
+    mid-string (not as a suffix) must still classify as chrome, not vscode.
+    Guards against re-introducing unanchored matching."""
+    title = "Visual Studio Code - Insiders - Download - Google Chrome"
+    assert _classify("Chrome_WidgetWin_1", title) == "chrome"
+
+
 # --- adopt_window_impl HWND validation ---------------------------------------
 
 
