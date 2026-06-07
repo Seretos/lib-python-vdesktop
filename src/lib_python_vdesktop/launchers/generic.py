@@ -19,6 +19,7 @@ def launch_app_impl(
     desktop: Optional[Union[int, str]] = None,
     label: Optional[str] = None,
     identification: Optional[dict] = None,
+    env: Optional[dict[str, str]] = None,
 ) -> dict:
     """Launch an arbitrary executable and register its window.
 
@@ -52,4 +53,5 @@ def launch_app_impl(
         class_filter=class_filter,
         resolve_timeout_ms=timeout,
         pre_spawn_snapshot=True,
+        env=env,
     )

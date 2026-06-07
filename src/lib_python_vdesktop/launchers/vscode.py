@@ -48,6 +48,7 @@ def launch_vscode_impl(
     desktop: Optional[Union[int, str]] = None,
     label: Optional[str] = None,
     reuse_window: bool = False,
+    env: Optional[dict[str, str]] = None,
 ) -> dict:
     code = find_vscode()
     folder_win = to_windows(folder)
@@ -75,4 +76,5 @@ def launch_vscode_impl(
         class_filter=CHROME_WIDGET_CLASS,  # VS Code uses Electron/Chromium class.
         resolve_timeout_ms=15000,
         pre_spawn_snapshot=True,
+        env=env,
     )

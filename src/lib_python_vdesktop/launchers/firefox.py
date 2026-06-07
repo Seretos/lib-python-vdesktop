@@ -82,6 +82,7 @@ def launch_firefox_impl(
     label: Optional[str] = None,
     new_profile: bool = True,
     private: bool = False,
+    env: Optional[dict[str, str]] = None,
 ) -> dict:
     if not urls:
         raise ValueError("launch_firefox requires at least one URL")
@@ -105,4 +106,5 @@ def launch_firefox_impl(
         desktop=desktop,
         class_filter=MOZILLA_WINDOW_CLASS,
         resolve_timeout_ms=10000,
+        env=env,
     )

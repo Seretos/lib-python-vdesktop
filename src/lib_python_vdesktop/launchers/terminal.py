@@ -122,6 +122,7 @@ def launch_terminal_impl(
     desktop: Optional[Union[int, str]] = None,
     label: Optional[str] = None,
     window_title: Optional[str] = None,
+    env: Optional[dict[str, str]] = None,
 ) -> dict:
     if not tabs:
         raise ValueError("launch_terminal requires at least one tab")
@@ -139,4 +140,5 @@ def launch_terminal_impl(
         class_filter=TERMINAL_CLASS,
         resolve_timeout_ms=10000,
         pre_spawn_snapshot=True,
+        env=env,
     )
