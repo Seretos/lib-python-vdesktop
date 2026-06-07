@@ -135,9 +135,10 @@ class VDesktopManager:
         label: Optional[str] = None,
         new_user_data_dir: bool = True,
         incognito: bool = False,
+        env: Optional[dict[str, str]] = None,
     ) -> dict:
         return chrome.launch_chrome_impl(
-            urls, slot, desktop, label, new_user_data_dir, incognito
+            urls, slot, desktop, label, new_user_data_dir, incognito, env
         )
 
     def launch_edge(
@@ -148,9 +149,10 @@ class VDesktopManager:
         label: Optional[str] = None,
         new_user_data_dir: bool = True,
         inprivate: bool = False,
+        env: Optional[dict[str, str]] = None,
     ) -> dict:
         return edge.launch_edge_impl(
-            urls, slot, desktop, label, new_user_data_dir, inprivate
+            urls, slot, desktop, label, new_user_data_dir, inprivate, env
         )
 
     def launch_firefox(
@@ -161,9 +163,10 @@ class VDesktopManager:
         label: Optional[str] = None,
         new_profile: bool = True,
         private: bool = False,
+        env: Optional[dict[str, str]] = None,
     ) -> dict:
         return firefox.launch_firefox_impl(
-            urls, slot, desktop, label, new_profile, private
+            urls, slot, desktop, label, new_profile, private, env
         )
 
     def launch_terminal(
@@ -173,8 +176,9 @@ class VDesktopManager:
         desktop: Optional[DesktopRef] = None,
         label: Optional[str] = None,
         window_title: Optional[str] = None,
+        env: Optional[dict[str, str]] = None,
     ) -> dict:
-        return terminal.launch_terminal_impl(tabs, slot, desktop, label, window_title)
+        return terminal.launch_terminal_impl(tabs, slot, desktop, label, window_title, env)
 
     def launch_vscode(
         self,
@@ -184,9 +188,10 @@ class VDesktopManager:
         desktop: Optional[DesktopRef] = None,
         label: Optional[str] = None,
         reuse_window: bool = False,
+        env: Optional[dict[str, str]] = None,
     ) -> dict:
         return vscode.launch_vscode_impl(
-            folder, files, slot, desktop, label, reuse_window
+            folder, files, slot, desktop, label, reuse_window, env
         )
 
     def launch_app(
@@ -198,9 +203,10 @@ class VDesktopManager:
         desktop: Optional[DesktopRef] = None,
         label: Optional[str] = None,
         identification: Optional[dict] = None,
+        env: Optional[dict[str, str]] = None,
     ) -> dict:
         return generic.launch_app_impl(
-            executable, args, cwd, slot, desktop, label, identification
+            executable, args, cwd, slot, desktop, label, identification, env
         )
 
     # -- adoption / query ---------------------------------------------------

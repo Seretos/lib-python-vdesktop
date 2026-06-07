@@ -354,13 +354,19 @@ def launch_and_register(
     resolve_timeout_ms: int = 8000,
     pre_spawn_snapshot: bool = False,
 ) -> dict:
-    """Canonical launch pipeline: spawn → resolve HWND → place → register."""
+    """Canonical launch pipeline: spawn → resolve HWND → place → register.
+
+    When ``env`` is supplied the process inherits a full copy of ``os.environ``
+    with the caller's keys overlaid. Pass ``env=None`` (the default) to inherit
+    the environment through the OS without copying.
+    """
     _validate_cwd(cwd)  # Fail clearly before spawning, not via an opaque OS error.
+    merged_env: Optional[dict] = {**os.environ, **env} if env is not None else None
     tracked: set[int] = {tw.hwnd for tw in REGISTRY.all()}
     proc, previous = _spawn_phase(
         args,
         cwd=cwd,
-        env=env,
+        env=merged_env,
         class_filter=class_filter,
         pre_spawn_snapshot=pre_spawn_snapshot,
     )

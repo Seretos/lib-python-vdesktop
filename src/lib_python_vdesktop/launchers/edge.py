@@ -40,6 +40,7 @@ def launch_edge_impl(
     label: Optional[str] = None,
     new_user_data_dir: bool = True,
     inprivate: bool = False,
+    env: Optional[dict[str, str]] = None,
 ) -> dict:
     if not urls:
         raise ValueError("launch_edge requires at least one URL")
@@ -66,4 +67,5 @@ def launch_edge_impl(
         desktop=desktop,
         class_filter=CHROME_WIDGET_CLASS,
         resolve_timeout_ms=10000,
+        env=env,
     )
