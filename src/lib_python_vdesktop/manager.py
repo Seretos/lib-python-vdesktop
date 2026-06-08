@@ -189,9 +189,10 @@ class VDesktopManager:
         label: Optional[str] = None,
         reuse_window: bool = False,
         env: Optional[dict[str, str]] = None,
+        wsl_distro: Optional[str] = None,
     ) -> dict:
         return vscode.launch_vscode_impl(
-            folder, files, slot, desktop, label, reuse_window, env
+            folder, files, slot, desktop, label, reuse_window, env, wsl_distro
         )
 
     def launch_app(

@@ -6,7 +6,12 @@ import subprocess
 import pytest
 
 from lib_python_vdesktop import pathmap
-from lib_python_vdesktop.pathmap import default_wsl_distro, to_posix, to_windows
+from lib_python_vdesktop.pathmap import (
+    calling_wsl_distro,
+    default_wsl_distro,
+    to_posix,
+    to_windows,
+)
 
 
 # --- to_windows --------------------------------------------------------------
@@ -45,8 +50,8 @@ def test_to_windows_wsl_home_path():
     assert to_windows("/home/user", wsl_distro="Ubuntu") == "\\\\wsl$\\Ubuntu\\home\\user"
 
 
-def test_to_windows_wsl_uses_default_distro(monkeypatch):
-    monkeypatch.setattr(pathmap, "default_wsl_distro", lambda: "TestDistro")
+def test_to_windows_wsl_uses_calling_distro(monkeypatch):
+    monkeypatch.setattr(pathmap, "calling_wsl_distro", lambda: "TestDistro")
     assert to_windows("/etc/hosts") == "\\\\wsl$\\TestDistro\\etc\\hosts"
 
 
@@ -154,3 +159,43 @@ def test_default_wsl_distro_falls_back_when_wsl_missing(monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run)
     assert default_wsl_distro() == "Ubuntu"
     default_wsl_distro.cache_clear()
+
+
+# --- calling_wsl_distro -------------------------------------------------------
+
+
+def test_calling_wsl_distro_wsl_localhost_unc(monkeypatch):
+    """CWD of the form \\\\wsl.localhost\\<distro>\\... (UNC) -> that distro."""
+    # A real UNC path has two leading backslashes: \\wsl.localhost\claude-agents\...
+    # In Python string literals that is "\\\\wsl.localhost\\claude-agents\\..."
+    monkeypatch.setattr(pathmap.os, "getcwd", lambda: "\\\\wsl.localhost\\claude-agents\\home\\user\\repo")
+    monkeypatch.delenv("WSL_DISTRO_NAME", raising=False)
+    assert calling_wsl_distro() == "claude-agents"
+
+
+def test_calling_wsl_distro_wsl_dollar_unc(monkeypatch):
+    """CWD of the older \\\\wsl$\\<distro>\\... form -> that distro."""
+    monkeypatch.setattr(pathmap.os, "getcwd", lambda: "\\\\wsl$\\claude-agents\\home\\user")
+    monkeypatch.delenv("WSL_DISTRO_NAME", raising=False)
+    assert calling_wsl_distro() == "claude-agents"
+
+
+def test_calling_wsl_distro_uses_env_when_no_unc(monkeypatch):
+    """Normal Windows drive CWD + WSL_DISTRO_NAME set -> env value."""
+    monkeypatch.setattr(pathmap.os, "getcwd", lambda: "C:\\Users\\me")
+    monkeypatch.setenv("WSL_DISTRO_NAME", "EnvDistro")
+    assert calling_wsl_distro() == "EnvDistro"
+
+
+def test_calling_wsl_distro_falls_back_to_default(monkeypatch):
+    """Normal CWD + env unset -> falls back to default_wsl_distro()."""
+    monkeypatch.setattr(pathmap.os, "getcwd", lambda: "C:\\Users\\me")
+    monkeypatch.delenv("WSL_DISTRO_NAME", raising=False)
+    monkeypatch.setattr(pathmap, "default_wsl_distro", lambda: "sentinel-distro")
+    assert calling_wsl_distro() == "sentinel-distro"
+
+
+def test_to_windows_uses_calling_wsl_distro_when_no_explicit(monkeypatch):
+    """to_windows() without explicit wsl_distro uses calling_wsl_distro()."""
+    monkeypatch.setattr(pathmap, "calling_wsl_distro", lambda: "claude-agents")
+    assert to_windows("/home/user/repo") == "\\\\wsl$\\claude-agents\\home\\user\\repo"

@@ -49,16 +49,17 @@ def launch_vscode_impl(
     label: Optional[str] = None,
     reuse_window: bool = False,
     env: Optional[dict[str, str]] = None,
+    wsl_distro: Optional[str] = None,
 ) -> dict:
     code = find_vscode()
-    folder_win = to_windows(folder)
+    folder_win = to_windows(folder, wsl_distro=wsl_distro)
     args = [code]
     if not reuse_window:
         args.append("-n")
     args.append(folder_win)
     if files:
         for f in files:
-            p = to_windows(f["path"])
+            p = to_windows(f["path"], wsl_distro=wsl_distro)
             line = f.get("line")
             if line:
                 args.extend(["--goto", f"{p}:{line}"])
