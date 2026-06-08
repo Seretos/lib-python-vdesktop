@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lib-python-vdesktop"
-version = "0.1.0"
+version = "0.1.8"
 description = "Windows virtual-desktop & window automation engine (pyvda/COM desktops, Win32 window ops, layouts, app launchers) for the Seretos agent-plugin ecosystem"
 requires-python = ">=3.11"
 authors = [{ name = "Arne von Appen" }]
