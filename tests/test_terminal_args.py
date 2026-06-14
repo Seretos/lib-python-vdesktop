@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from lib_python_vdesktop.launchers import terminal as terminal_mod
 from lib_python_vdesktop.launchers.terminal import (
     _shell_command_tokens,
     _tab_args,
@@ -110,9 +111,32 @@ def test_tab_args_wsl_uses_distro_as_profile():
     assert parts[parts.index("-p") + 1] == "Ubuntu-22.04"
 
 
-def test_tab_args_wsl_default_distro_when_none_given():
+def test_tab_args_wsl_default_distro_when_none_given(monkeypatch):
+    monkeypatch.setattr(terminal_mod, "calling_wsl_distro", lambda: "claude-agents")
     parts = _tab_args({"shell": "wsl"}, is_first=True)
-    assert parts[parts.index("-p") + 1] == "Ubuntu"
+    assert parts[parts.index("-p") + 1] == "claude-agents"
+
+
+def test_tab_args_wsl_command_uses_inferred_distro(monkeypatch):
+    """Regression: wsl.exe -d in the command tokens must use the same distro
+    as the WT profile when no explicit wsl_distro is given in the tab dict.
+
+    Before the fix, profile used calling_wsl_distro() but the command tokens
+    received the raw tab value (None), so wsl.exe omitted -d entirely and ran
+    the command in the Windows-default distro instead of the inferred one.
+    """
+    monkeypatch.setattr(terminal_mod, "calling_wsl_distro", lambda: "claude-agents")
+    parts = _tab_args(
+        {"shell": "wsl", "command": "claude --dangerously-skip-permissions"},
+        is_first=True,
+    )
+    # Profile must name the inferred distro.
+    assert parts[parts.index("-p") + 1] == "claude-agents"
+    # wsl.exe command tokens must also include -d <inferred-distro>.
+    assert "wsl.exe" in parts
+    wsl_idx = parts.index("wsl.exe")
+    assert parts[wsl_idx + 1] == "-d"
+    assert parts[wsl_idx + 2] == "claude-agents"
 
 
 def test_tab_args_explicit_profile_overrides_shell_dispatch():

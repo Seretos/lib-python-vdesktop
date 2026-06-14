@@ -12,7 +12,7 @@ import uuid
 from typing import Optional, Union
 
 from .._window_classes import TERMINAL_CLASS
-from ..pathmap import to_windows
+from ..pathmap import calling_wsl_distro, to_windows
 from ._common import launch_and_register
 
 log = logging.getLogger("vdesktop.launcher.terminal")
@@ -81,10 +81,14 @@ def _tab_args(tab: dict, *, is_first: bool) -> list[str]:
     if wsl_distro is not None:
         _validate_safe_name(wsl_distro, "wsl_distro")
 
+    # For WSL tabs, resolve the effective distro once so that profile,
+    # cwd conversion, and the wsl.exe command token all use the same value.
+    effective_distro = (wsl_distro or calling_wsl_distro()) if shell == "wsl" else None
+
     if profile:
         parts.extend(["-p", profile])
     elif shell == "wsl":
-        parts.extend(["-p", wsl_distro or "Ubuntu"])
+        parts.extend(["-p", effective_distro])
     elif shell in _SHELL_PROFILES:
         parts.extend(["-p", _SHELL_PROFILES[shell]])
 
@@ -93,7 +97,7 @@ def _tab_args(tab: dict, *, is_first: bool) -> list[str]:
             # WSL tab: cwd must be a Windows path that maps into the WSL filesystem.
             if cwd.startswith("/"):
                 # POSIX path under the WSL distro → \\wsl$\<distro>\...
-                cwd_arg = to_windows(cwd, wsl_distro=wsl_distro)
+                cwd_arg = to_windows(cwd, wsl_distro=effective_distro)
             else:
                 cwd_arg = to_windows(cwd)
         else:
@@ -101,7 +105,7 @@ def _tab_args(tab: dict, *, is_first: bool) -> list[str]:
         parts.extend(["-d", cwd_arg])
 
     if command:
-        parts.extend(_shell_command_tokens(shell, command, wsl_distro))
+        parts.extend(_shell_command_tokens(shell, command, effective_distro))
 
     return parts
 

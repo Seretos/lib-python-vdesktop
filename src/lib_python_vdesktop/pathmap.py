@@ -14,6 +14,7 @@ from functools import lru_cache
 _POSIX_DRIVE_RE = re.compile(r"^/mnt/([a-z])(?=/|$)", re.IGNORECASE)
 _WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 _WIN_UNC_RE = re.compile(r"^\\\\")
+_WSL_UNC_RE = re.compile(r"^\\\\(?:wsl\.localhost|wsl\$)\\([^\\]+)", re.IGNORECASE)
 
 
 @lru_cache(maxsize=1)
@@ -44,6 +45,27 @@ def default_wsl_distro() -> str:
     return "Ubuntu"
 
 
+def calling_wsl_distro() -> str:
+    """Identify the WSL distro that spawned this Windows process.
+
+    Priority chain (deliberately NOT cached — CWD can change across calls):
+
+    1. Parse the CWD as a UNC path of the form ``\\\\wsl.localhost\\<distro>\\``
+       or the older ``\\\\wsl$\\<distro>\\`` — the Windows process CWD is set to
+       such a path when launched from inside WSL.
+    2. ``WSL_DISTRO_NAME`` environment variable, if set and non-empty.
+    3. Fall back to :func:`default_wsl_distro`.
+    """
+    cwd = os.getcwd()
+    m = _WSL_UNC_RE.match(cwd)
+    if m:
+        return m.group(1)
+    env_distro = os.environ.get("WSL_DISTRO_NAME")
+    if env_distro:
+        return env_distro
+    return default_wsl_distro()
+
+
 def to_windows(path: str, *, wsl_distro: str | None = None) -> str:
     """Convert an arbitrary path into a Windows-style path.
 
@@ -64,7 +86,7 @@ def to_windows(path: str, *, wsl_distro: str | None = None) -> str:
             return f"{drive}:\\"
         return f"{drive}:" + rest.replace("/", "\\")
     if path.startswith("/"):
-        distro = wsl_distro or default_wsl_distro()
+        distro = wsl_distro or calling_wsl_distro()
         return f"\\\\wsl$\\{distro}" + path.replace("/", "\\")
     # Relative path — convert slashes for Windows.
     return path.replace("/", "\\")
