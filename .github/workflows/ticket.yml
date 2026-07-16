@@ -28,6 +28,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.VDESKTOP_TICKET_TOKEN }}
+          # Separate token: VDESKTOP_TICKET_TOKEN only needs Issues:write on
+          # the consumer repo, but adding an item to a user-owned Projects v2
+          # board needs account-level project scope — kept as its own secret
+          # so the narrower per-consumer token doesn't need broadening.
+          PROJECT_BOARD_TOKEN: ${{ secrets.PROJECT_BOARD_TOKEN }}
           VERSION: ${{ inputs.version }}
           CONSUMERS: ${{ inputs.consumers }}
         run: |
@@ -48,15 +53,19 @@ jobs:
           EOF
           )
           for REPO in $CONSUMERS; do
-            existing=$(gh issue list --repo "$REPO" --state open \
-              --search "in:title \"$TITLE\"" --json number --jq 'length')
-            if [ "$existing" != "0" ]; then
-              echo "Ticket already open in $REPO for ${TAG} — skipping."
-              continue
+            ISSUE_URL=$(gh issue list --repo "$REPO" --state open \
+              --search "in:title \"$TITLE\"" --json url --jq '.[0].url // empty')
+            if [ -n "$ISSUE_URL" ]; then
+              echo "Ticket already open in $REPO for ${TAG} — skipping creation."
+            else
+              ISSUE_URL=$(gh issue create --repo "$REPO" \
+                --title "$TITLE" \
+                --label dependencies \
+                --body "$BODY")
+              echo "Filed update ticket in $REPO for ${TAG}: ${ISSUE_URL}"
             fi
-            gh issue create --repo "$REPO" \
-              --title "$TITLE" \
-              --label dependencies \
-              --body "$BODY"
-            echo "Filed update ticket in $REPO for ${TAG}."
+            if [ -n "$ISSUE_URL" ]; then
+              GH_TOKEN="$PROJECT_BOARD_TOKEN" gh project item-add 2 --owner Seretos --url "$ISSUE_URL" \
+                || echo "::warning::Could not add $ISSUE_URL to project board 2 (check PROJECT_BOARD_TOKEN)."
+            fi
           done
