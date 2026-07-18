@@ -48,10 +48,10 @@ dependency-update ticket in each consumer (`agent-vdesktop`). Never hand-bump
 `ticket.yml` re-files a ticket by hand if that step ever fails.
 
 Right after filing (or finding) each ticket, the same step adds it to the
-`users/Seretos/projects/2` board via `gh project item-add`, using a separate
-`PROJECT_BOARD_TOKEN` secret (a classic PAT with the `project` scope, or a
-fine-grained PAT with account-level Projects: write — not repo-scoped, so the
-same token value is reused across every repo in the ecosystem that has this
-step). If that secret is missing or lacks the scope, the board-add is logged
-as a `::warning::` and does not fail the run — the ticket itself still opens
-normally.
+`users/Seretos/projects/2` board via `gh project item-add`, reusing the same
+`VDESKTOP_TICKET_TOKEN` already set for the step — no new secret to create. For
+this to work the token must be a fine-grained PAT carrying account-level
+"Projects: write" alongside its repository-scoped Issues:write; a fine-grained
+PAT can hold both permission classes at once. If the token lacks the Projects
+scope, the board-add is logged as a `::warning::` and does not fail the run —
+the ticket itself still opens normally.
