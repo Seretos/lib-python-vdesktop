@@ -49,9 +49,13 @@ dependency-update ticket in each consumer (`agent-vdesktop`). Never hand-bump
 
 Right after filing (or finding) each ticket, the same step adds it to the
 `users/Seretos/projects/2` board via `gh project item-add`, reusing the same
-`VDESKTOP_TICKET_TOKEN` already set for the step — no new secret to create. For
-this to work the token must be a fine-grained PAT carrying account-level
-"Projects: write" alongside its repository-scoped Issues:write; a fine-grained
-PAT can hold both permission classes at once. If the token lacks the Projects
-scope, the board-add is logged as a `::warning::` and does not fail the run —
-the ticket itself still opens normally.
+`VDESKTOP_TICKET_TOKEN` already set for the step — no new secret to create.
+For this to work the token must be a **classic PAT** (Settings → Developer
+settings → Personal access tokens → Tokens (classic)) with the `repo` and
+`project` scopes — fine-grained PATs have no "Projects" permission at all
+(a hard GitHub platform limitation, not something to look for harder in the
+UI). The same classic PAT value is shared and reused verbatim across every
+repo/secret in the ecosystem that files tickets and adds them to the board.
+If the token lacks the `project` scope, the board-add is logged as a
+`::warning::` and does not fail the run — the ticket itself still opens
+normally.

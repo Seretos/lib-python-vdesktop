@@ -135,10 +135,10 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          # VDESKTOP_TICKET_TOKEN needs Issues:write on the consumer repo AND
-          # account-level "Projects: write" — a fine-grained PAT carries both
-          # repository and account permissions, so the board-add call further
-          # down authenticates with this same token (no second secret).
+          # VDESKTOP_TICKET_TOKEN must be a classic PAT with the `repo` and
+          # `project` scopes — fine-grained PATs have no Projects permission
+          # at all, so the board-add call further down authenticates with
+          # this same classic-PAT secret (no second secret needed).
           GH_TOKEN: ${{ secrets.VDESKTOP_TICKET_TOKEN }}
           VERSION: ${{ inputs.version }}
         run: |
@@ -173,6 +173,6 @@ jobs:
             fi
             if [ -n "$ISSUE_URL" ]; then
               gh project item-add 2 --owner Seretos --url "$ISSUE_URL" \
-                || echo "::warning::Could not add $ISSUE_URL to project board 2 (check VDESKTOP_TICKET_TOKEN has account-level Projects: write)."
+                || echo "::warning::Could not add $ISSUE_URL to project board 2 (check VDESKTOP_TICKET_TOKEN is a classic PAT with the project scope)."
             fi
           done
