@@ -27,6 +27,10 @@ jobs:
       - name: Open dependency-update ticket in consumers
         shell: bash
         env:
+          # VDESKTOP_TICKET_TOKEN must be a classic PAT with the `repo` and
+          # `project` scopes — fine-grained PATs have no Projects permission
+          # at all, so the board-add call further down authenticates with
+          # this same classic-PAT secret (no second secret needed).
           GH_TOKEN: ${{ secrets.VDESKTOP_TICKET_TOKEN }}
           VERSION: ${{ inputs.version }}
           CONSUMERS: ${{ inputs.consumers }}
@@ -48,15 +52,19 @@ jobs:
           EOF
           )
           for REPO in $CONSUMERS; do
-            existing=$(gh issue list --repo "$REPO" --state open \
-              --search "in:title \"$TITLE\"" --json number --jq 'length')
-            if [ "$existing" != "0" ]; then
-              echo "Ticket already open in $REPO for ${TAG} — skipping."
-              continue
+            ISSUE_URL=$(gh issue list --repo "$REPO" --state open \
+              --search "in:title \"$TITLE\"" --json url --jq '.[0].url // empty')
+            if [ -n "$ISSUE_URL" ]; then
+              echo "Ticket already open in $REPO for ${TAG} — skipping creation."
+            else
+              ISSUE_URL=$(gh issue create --repo "$REPO" \
+                --title "$TITLE" \
+                --label dependencies \
+                --body "$BODY")
+              echo "Filed update ticket in $REPO for ${TAG}: ${ISSUE_URL}"
             fi
-            gh issue create --repo "$REPO" \
-              --title "$TITLE" \
-              --label dependencies \
-              --body "$BODY"
-            echo "Filed update ticket in $REPO for ${TAG}."
+            if [ -n "$ISSUE_URL" ]; then
+              gh project item-add 2 --owner Seretos --url "$ISSUE_URL" \
+                || echo "::warning::Could not add $ISSUE_URL to project board 2 (check VDESKTOP_TICKET_TOKEN is a classic PAT with the project scope)."
+            fi
           done
