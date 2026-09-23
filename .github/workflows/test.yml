@@ -1,7 +1,8 @@
 name: tests
 
-# Runs pytest on every push to any branch and on every PR. Distinct from
-# release.yml, which is workflow_dispatch-driven and produces the tag + release.
+# Runs pytest on every pull request (no push trigger — code reaches main only
+# via PRs). Distinct from release.yml, which is workflow_dispatch-driven and
+# produces the tag + release.
 #
 # Windows-only: several engine modules touch `ctypes.windll` at import time and
 # pyvda targets undocumented Windows COM interfaces, so the package only imports
@@ -9,8 +10,6 @@ name: tests
 # platform-independent logic; the COM/Win32 paths are verified manually on real
 # hardware. This matches the agent-vdesktop plugin's CI runner.
 on:
-  push:
-    branches: ["**"]
   pull_request:
 
 permissions:
