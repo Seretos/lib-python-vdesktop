@@ -18,6 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 test = [
   "pytest>=8",
+  "pytest-timeout>=2.3",
 ]
 
 [tool.setuptools]
@@ -30,3 +31,7 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra --strict-markers"
+# ticket #34: bound every test at 60s so a wedged test aborts the run instead
+# of hanging it; on Windows a hit dumps thread stacks then aborts the session.
+timeout = 60
+timeout_method = "thread"
