@@ -43,6 +43,7 @@ Concretely: any *"where is X defined / what does the code support / which Y exis
 `release.yml` (manual dispatch, `version=X.Y.Z`) stamps the version in CI, tags
 `vX.Y.Z`, force-pushes `release/Nx`, publishes a GitHub Release, then opens a
 dependency-update ticket in each consumer (`agent-vdesktop`). Never hand-bump
-`version` in `pyproject.toml`. The ticket step authenticates with the
-`VDESKTOP_TICKET_TOKEN` repo secret (Issues:write on the consumer repos);
-`ticket.yml` re-files a ticket by hand if that step ever fails.
+`version` in `pyproject.toml`. The last step (non-fatal) calls the central
+composite action `Seretos/agent-plugin-dev/.github/actions/notify-consumers@main`
+for the consumer list `Seretos/agent-vdesktop`, authenticating with the
+`ECOSYSTEM_TOKEN` repo secret.

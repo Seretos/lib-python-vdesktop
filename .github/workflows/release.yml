@@ -10,7 +10,8 @@ name: release
 #                             stamp commit as vX.Y.Z, force-pushes release/Nx
 #                             (a floating branch consumers MAY pin), creates the
 #                             GitHub Release, then opens a dependency-update
-#                             ticket in each consuming repo (agent-vdesktop).
+#                             ticket in each consuming repo (agent-vdesktop) via
+#                             the central `notify-consumers` action.
 #                             `main` is never touched.
 #
 # Release-branch policy:
@@ -19,9 +20,10 @@ name: release
 # Past tags remain reachable via `@vX.Y.Z` even after a force-push because the
 # commit they point to is preserved by git as long as the tag exists.
 #
-# Consumers pin an EXACT tag (`@vX.Y.Z`) for deterministic builds. The ticket
-# step (below) is how a new release reaches them: it does NOT bump anyone's pin,
-# it files an actionable ticket so a human/agent does the bump deliberately.
+# Consumers pin an EXACT tag (`@vX.Y.Z`) for deterministic builds. The
+# notify-consumers step (below) is how a new release reaches them: it does NOT
+# bump anyone's pin, it files an actionable ticket so a human/agent does the
+# bump deliberately.
 on:
   workflow_dispatch:
     inputs:
@@ -121,50 +123,14 @@ jobs:
             --generate-notes \
             $PRE_FLAG
 
-      # Open a dependency-update ticket in each consuming repo. Uses a PAT
-      # (VDESKTOP_TICKET_TOKEN, Issues:write on the consumer) — the built-in
-      # GITHUB_TOKEN only has rights in THIS repo, not cross-repo. Idempotent:
-      # re-running the same version won't open a duplicate ticket. This runs
-      # last, after the release artifacts are published, so a ticket hiccup
-      # never blocks the release itself — use ticket.yml to re-file by hand.
-      - name: Open dependency-update ticket in consumers
-        # Non-fatal: the release artifacts (tag, release/Nx, GitHub Release) are
-        # already published by the steps above. A missing/expired
-        # VDESKTOP_TICKET_TOKEN or a missing `dependencies` label must not red-X
-        # the release — re-file the ticket via ticket.yml once that's fixed.
+      # Opens a dependency-update ticket in each consuming repo via the central
+      # notify-consumers action (changelog + board placement live there).
+      # Non-fatal and runs last, after the release artifacts are published.
+      - name: Open dependency-update tickets in consumers
         continue-on-error: true
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.VDESKTOP_TICKET_TOKEN }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          CONSUMERS="Seretos/agent-vdesktop"
-          TAG="v${VERSION}"
-          TITLE="chore(deps): bump lib-python-vdesktop to ${TAG}"
-          BODY=$(cat <<EOF
-          A new release of **lib-python-vdesktop** is available: \`${TAG}\`.
-
-          Update the pin in \`pyproject.toml\`:
-
-          \`\`\`
-          lib-python-vdesktop @ git+https://github.com/${{ github.repository }}@${TAG}
-          \`\`\`
-
-          Then rebuild the \`.exe\` (\`scripts/build.ps1\`) and run the test suite.
-
-          Release notes: https://github.com/${{ github.repository }}/releases/tag/${TAG}
-          EOF
-          )
-          for REPO in $CONSUMERS; do
-            existing=$(gh issue list --repo "$REPO" --state open \
-              --search "in:title \"$TITLE\"" --json number --jq 'length')
-            if [ "$existing" != "0" ]; then
-              echo "Ticket already open in $REPO for ${TAG} — skipping."
-              continue
-            fi
-            gh issue create --repo "$REPO" \
-              --title "$TITLE" \
-              --label dependencies \
-              --body "$BODY"
-            echo "Filed update ticket in $REPO for ${TAG}."
-          done
+        uses: Seretos/agent-plugin-dev/.github/actions/notify-consumers@main
+        with:
+          version: ${{ inputs.version }}
+          source_repo: ${{ github.repository }}
+          consumers: Seretos/agent-vdesktop
+          gh_token: ${{ secrets.ECOSYSTEM_TOKEN }}
