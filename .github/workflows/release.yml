@@ -24,6 +24,12 @@ name: release
 # notify-consumers step (below) is how a new release reaches them: it does NOT
 # bump anyone's pin, it files an actionable ticket so a human/agent does the
 # bump deliberately.
+#
+# "Create GitHub Release" passes --notes-start-tag explicitly (computed by
+# scripts/prev_release_tag.py) because release tags are the orphaned stamp
+# commits described above, never ancestors of one another, so gh's own
+# ancestor-walk auto-detection can't find the previous tag and silently
+# falls back to the whole project history.
 on:
   workflow_dispatch:
     inputs:
@@ -117,10 +123,26 @@ jobs:
           if [[ "${{ inputs.version }}" == *-* ]]; then
             PRE_FLAG="--prerelease"
           fi
+
+          # Release tags are orphaned stamp commits (never ancestors of one
+          # another), so gh's own auto-detection of the previous tag can't
+          # walk history and falls back to the whole project. Compute
+          # v<prev> ourselves and pass it explicitly; omit the flag on a
+          # first release instead of passing an empty value.
+          PREV_TAG=$(git tag -l 'v*' | python3 scripts/prev_release_tag.py "${{ inputs.version }}")
+          NOTES_START=()
+          if [[ -n "$PREV_TAG" ]]; then
+            echo "Previous release tag: ${PREV_TAG}"
+            NOTES_START=(--notes-start-tag "$PREV_TAG")
+          else
+            echo "No previous tag found — treating as first release."
+          fi
+
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \
             --title "$TAG" \
             --generate-notes \
+            "${NOTES_START[@]}" \
             $PRE_FLAG
 
       # Opens a dependency-update ticket in each consuming repo via the central
