@@ -43,7 +43,8 @@ Concretely: any *"where is X defined / what does the code support / which Y exis
 `release.yml` (manual dispatch, `version=X.Y.Z`) stamps the version in CI, tags
 `vX.Y.Z`, force-pushes `release/Nx`, publishes a GitHub Release, then opens a
 dependency-update ticket in each consumer (`agent-vdesktop`). Never hand-bump
-`version` in `pyproject.toml`. The last step (non-fatal) calls the central
-composite action `Seretos/agent-plugin-dev/.github/actions/notify-consumers@main`
-for the consumer list `Seretos/agent-vdesktop`, authenticating with the
-`ECOSYSTEM_TOKEN` repo secret.
+`version` in `pyproject.toml`. The last step calls the central composite
+action `seretos-agents/modular-software-factory-dev/.github/actions/notify-consumers@main`
+for the consumer list `seretos-agents/agent-vdesktop`, authenticating with the
+`ECOSYSTEM_TOKEN` repo secret. A failure in that step fails the release run
+itself -- silently missing bump tickets is worse than a red run.

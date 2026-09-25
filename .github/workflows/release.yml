@@ -147,12 +147,12 @@ jobs:
 
       # Opens a dependency-update ticket in each consuming repo via the central
       # notify-consumers action (changelog + board placement live there).
-      # Non-fatal and runs last, after the release artifacts are published.
+      # A failure here fails the release run itself -- silently missing bump
+      # tickets is worse than a red run.
       - name: Open dependency-update tickets in consumers
-        continue-on-error: true
-        uses: Seretos/agent-plugin-dev/.github/actions/notify-consumers@main
+        uses: seretos-agents/modular-software-factory-dev/.github/actions/notify-consumers@main
         with:
           version: ${{ inputs.version }}
           source_repo: ${{ github.repository }}
-          consumers: Seretos/agent-vdesktop
+          consumers: seretos-agents/agent-vdesktop
           gh_token: ${{ secrets.ECOSYSTEM_TOKEN }}
